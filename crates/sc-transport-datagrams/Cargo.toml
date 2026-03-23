@@ -7,7 +7,7 @@ description = "Experimental QUIC datagram transport for Synaptic Core telemetry"
 
 [features]
 default = []
-quic-datagrams = ["dep:quinn", "dep:rustls", "dep:rmp-serde", "dep:rcgen"]
+quic-datagrams = ["dep:quinn", "dep:rustls", "dep:rcgen"]
 
 [dependencies]
 sc-transport-core = { path = "../sc-transport-core" }
@@ -16,7 +16,7 @@ futures = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
-rmp-serde = { workspace = true, optional = true }
+rmp-serde = { workspace = true }
 quinn = { version = "0.11", optional = true }
 rustls = { version = "0.23", optional = true, default-features = false, features = ["ring", "std", "tls12"] }
 rcgen = { version = "0.13", optional = true }

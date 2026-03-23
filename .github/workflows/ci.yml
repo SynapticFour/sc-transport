@@ -15,6 +15,9 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
           components: clippy, rustfmt
+      - name: Handle legacy Cargo lock compatibility
+        if: matrix.rust == '1.75'
+        run: rm -f Cargo.lock
       - run: cargo build --workspace --all-features
       - run: cargo test --workspace
       - run: cargo clippy --workspace --all-features -- -D warnings
