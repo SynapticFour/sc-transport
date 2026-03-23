@@ -8,16 +8,13 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
-        rust: [stable, "1.75"]
+        rust: [stable]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
           components: clippy, rustfmt
-      - name: Handle legacy Cargo lock compatibility
-        if: matrix.rust == '1.75'
-        run: rm -f Cargo.lock
       - run: cargo build --workspace --all-features
       - run: cargo test --workspace
       - run: cargo clippy --workspace --all-features -- -D warnings
