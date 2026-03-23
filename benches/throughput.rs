@@ -1,10 +1,10 @@
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{criterion_group, criterion_main, Criterion};
 use futures::StreamExt;
 use sc_transport_core::{EventType, HttpSseTransport, TelemetryEvent, Transport};
 use sc_transport_datagrams::QuicDatagramTransport;
 use sc_transport_quic::QuicStreamTransport;
 use tokio::runtime::Runtime;
-use tokio::time::{Duration, timeout};
+use tokio::time::{timeout, Duration};
 
 fn scripted_event(run_id: &str, i: u64) -> TelemetryEvent {
     TelemetryEvent {

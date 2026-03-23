@@ -1,9 +1,9 @@
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{criterion_group, criterion_main, Criterion};
 use futures::StreamExt;
 use sc_transport_core::{EventType, TelemetryEvent, Transport};
 use sc_transport_datagrams::QuicDatagramTransport;
 use tokio::runtime::Runtime;
-use tokio::time::{Duration, timeout};
+use tokio::time::{timeout, Duration};
 
 fn packet_loss_datagram_delivery_ratio(c: &mut Criterion) {
     let rt = Runtime::new().expect("runtime");
@@ -31,7 +31,8 @@ fn packet_loss_datagram_delivery_ratio(c: &mut Criterion) {
                 }
                 let mut received = 0_u64;
                 for _ in 0..sent {
-                    if let Ok(Some(Ok(_))) = timeout(Duration::from_millis(2), stream.next()).await {
+                    if let Ok(Some(Ok(_))) = timeout(Duration::from_millis(2), stream.next()).await
+                    {
                         received += 1;
                     }
                 }

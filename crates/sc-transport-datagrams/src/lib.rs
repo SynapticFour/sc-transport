@@ -7,11 +7,11 @@ use sc_transport_core::{
     DeliveryStatus, EventStream, EventType, HttpSseTransport, TelemetryEvent, Transport,
     TransportError, TransportMetrics,
 };
+use std::collections::VecDeque;
 #[cfg(feature = "quic-datagrams")]
 use std::net::{Ipv4Addr, SocketAddr};
-use std::collections::VecDeque;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
 pub struct QuicDatagramTransport {
@@ -52,7 +52,8 @@ impl QuicDatagramTransport {
     }
 
     fn should_drop_for_rate_limit(&self, event: &TelemetryEvent) -> bool {
-        matches!(event.event_type, EventType::Progress) && self.sent.load(Ordering::Relaxed) % 100 == 99
+        matches!(event.event_type, EventType::Progress)
+            && self.sent.load(Ordering::Relaxed) % 100 == 99
     }
 
     fn should_force_fallback(&self, event: &TelemetryEvent) -> bool {
@@ -133,15 +134,19 @@ impl QuicDatagramTransport {
         let cert_der: CertificateDer<'static> = CertificateDer::from(cert.cert.der().to_vec());
         let key_der = PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der());
 
-        let mut server_config = ServerConfig::with_single_cert(vec![cert_der.clone()], key_der.into())
-            .map_err(|e| TransportError::QuicError(e.to_string()))?;
+        let mut server_config =
+            ServerConfig::with_single_cert(vec![cert_der.clone()], key_der.into())
+                .map_err(|e| TransportError::QuicError(e.to_string()))?;
         Arc::get_mut(&mut server_config.transport)
             .ok_or_else(|| TransportError::QuicError("transport config unavailable".to_string()))?
             .datagram_receive_buffer_size(Some(65536));
 
-        let server_endpoint = Endpoint::server(server_config, SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
+        let server_endpoint =
+            Endpoint::server(server_config, SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
+                .map_err(|e| TransportError::QuicError(e.to_string()))?;
+        let server_addr = server_endpoint
+            .local_addr()
             .map_err(|e| TransportError::QuicError(e.to_string()))?;
-        let server_addr = server_endpoint.local_addr().map_err(|e| TransportError::QuicError(e.to_string()))?;
 
         let mut roots = rustls::RootCertStore::empty();
         roots
@@ -150,8 +155,10 @@ impl QuicDatagramTransport {
         let client_crypto = rustls::ClientConfig::builder()
             .with_root_certificates(roots)
             .with_no_client_auth();
-        let client_config = ClientConfig::new(Arc::new(quinn::crypto::rustls::QuicClientConfig::try_from(client_crypto)
-            .map_err(|e| TransportError::QuicError(e.to_string()))?));
+        let client_config = ClientConfig::new(Arc::new(
+            quinn::crypto::rustls::QuicClientConfig::try_from(client_crypto)
+                .map_err(|e| TransportError::QuicError(e.to_string()))?,
+        ));
         let mut client_endpoint = Endpoint::client(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
             .map_err(|e| TransportError::QuicError(e.to_string()))?;
         client_endpoint.set_default_client_config(client_config);
@@ -161,8 +168,13 @@ impl QuicDatagramTransport {
                 .accept()
                 .await
                 .ok_or_else(|| TransportError::QuicError("server accept none".to_string()))?;
-            let connection = connecting.await.map_err(|e| TransportError::QuicError(e.to_string()))?;
-            let dgram = connection.read_datagram().await.map_err(|e| TransportError::QuicError(e.to_string()))?;
+            let connection = connecting
+                .await
+                .map_err(|e| TransportError::QuicError(e.to_string()))?;
+            let dgram = connection
+                .read_datagram()
+                .await
+                .map_err(|e| TransportError::QuicError(e.to_string()))?;
             connection
                 .send_datagram(dgram.clone())
                 .map_err(|e| TransportError::QuicError(e.to_string()))?;
@@ -175,13 +187,19 @@ impl QuicDatagramTransport {
             .map_err(|e| TransportError::QuicError(e.to_string()))?
             .await
             .map_err(|e| TransportError::QuicError(e.to_string()))?;
-        let payload = rmp_serde::to_vec_named(&event).map_err(|e| TransportError::Serialization(e.to_string()))?;
+        let payload = rmp_serde::to_vec_named(&event)
+            .map_err(|e| TransportError::Serialization(e.to_string()))?;
         conn.send_datagram(payload.into())
             .map_err(|e| TransportError::QuicError(e.to_string()))?;
-        let echoed = conn.read_datagram().await.map_err(|e| TransportError::QuicError(e.to_string()))?;
+        let echoed = conn
+            .read_datagram()
+            .await
+            .map_err(|e| TransportError::QuicError(e.to_string()))?;
         let decoded = rmp_serde::from_slice::<TelemetryEvent>(&echoed)
             .map_err(|e| TransportError::Serialization(e.to_string()))?;
-        let _ = server.await.map_err(|e| TransportError::QuicError(e.to_string()))??;
+        let _ = server
+            .await
+            .map_err(|e| TransportError::QuicError(e.to_string()))??;
         Ok(decoded)
     }
 }
@@ -279,7 +297,7 @@ mod tests {
     use futures::StreamExt;
     use sc_transport_core::HttpSseTransport;
     use sc_transport_quic::QuicStreamTransport;
-    use tokio::time::{Duration, timeout};
+    use tokio::time::{timeout, Duration};
 
     fn progress(run_id: &str, idx: u64) -> TelemetryEvent {
         TelemetryEvent {
@@ -306,7 +324,10 @@ mod tests {
 
         let mut dropped = 0_u64;
         for i in 0..200_u64 {
-            let status = t.send_event(run_id, progress(run_id, i)).await.expect("send");
+            let status = t
+                .send_event(run_id, progress(run_id, i))
+                .await
+                .expect("send");
             if matches!(status, DeliveryStatus::Dropped) {
                 dropped += 1;
             }
@@ -371,7 +392,10 @@ mod tests {
 
         let mut sse_stream = sse.subscribe(run_id).await.expect("sse subscribe");
         let mut quic_stream = quic.subscribe(run_id).await.expect("quic subscribe");
-        let mut datagram_stream = datagram.subscribe(run_id).await.expect("datagram subscribe");
+        let mut datagram_stream = datagram
+            .subscribe(run_id)
+            .await
+            .expect("datagram subscribe");
 
         send_scripted_events(&sse, run_id).await;
         send_scripted_events(&quic, run_id).await;
@@ -384,7 +408,9 @@ mod tests {
             sse_events.push(sse_stream.next().await.expect("sse item").expect("ok"));
             quic_events.push(quic_stream.next().await.expect("quic item").expect("ok"));
             // Datagrams may drop; collect what arrives quickly.
-            if let Ok(Some(Ok(event))) = timeout(Duration::from_millis(20), datagram_stream.next()).await {
+            if let Ok(Some(Ok(event))) =
+                timeout(Duration::from_millis(20), datagram_stream.next()).await
+            {
                 datagram_events.push(event);
             }
         }

@@ -1,4 +1,4 @@
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{criterion_group, criterion_main, Criterion};
 use futures::StreamExt;
 use sc_transport_core::{EventType, HttpSseTransport, TelemetryEvent, Transport};
 use std::time::Instant;

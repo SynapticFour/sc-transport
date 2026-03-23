@@ -38,8 +38,9 @@ impl QuicStreamTransport {
         let payload = rmp_serde::to_vec_named(event)
             .map_err(|e| TransportError::Serialization(e.to_string()))?;
         let mut buf = Vec::with_capacity(LENGTH_PREFIX_BYTES + payload.len());
-        let len = u32::try_from(payload.len())
-            .map_err(|_| TransportError::Unavailable("event payload exceeds u32 frame length".to_string()))?;
+        let len = u32::try_from(payload.len()).map_err(|_| {
+            TransportError::Unavailable("event payload exceeds u32 frame length".to_string())
+        })?;
         buf.extend_from_slice(&len.to_be_bytes());
         buf.extend_from_slice(&payload);
         Ok(buf)
@@ -53,7 +54,9 @@ impl QuicStreamTransport {
         let declared_len = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]) as usize;
         let payload = &buf[LENGTH_PREFIX_BYTES..];
         if payload.len() != declared_len {
-            return Err(TransportError::Unavailable("frame length mismatch".to_string()));
+            return Err(TransportError::Unavailable(
+                "frame length mismatch".to_string(),
+            ));
         }
         rmp_serde::from_slice(payload).map_err(|e| TransportError::Serialization(e.to_string()))
     }
@@ -103,7 +106,9 @@ impl QuicStreamTransport {
     }
 
     #[cfg(feature = "quic-streams")]
-    pub async fn quic_loopback_roundtrip(event: TelemetryEvent) -> Result<TelemetryEvent, TransportError> {
+    pub async fn quic_loopback_roundtrip(
+        event: TelemetryEvent,
+    ) -> Result<TelemetryEvent, TransportError> {
         use quinn::{ClientConfig, Endpoint, ServerConfig};
         use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
         use std::sync::Arc;
@@ -113,16 +118,20 @@ impl QuicStreamTransport {
         let cert_der: CertificateDer<'static> = CertificateDer::from(cert.cert.der().to_vec());
         let key_der = PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der());
 
-        let mut server_config = ServerConfig::with_single_cert(vec![cert_der.clone()], key_der.into())
-            .map_err(|e| TransportError::QuicError(e.to_string()))?;
-        let transport_config = Arc::get_mut(&mut server_config.transport)
-            .ok_or_else(|| TransportError::QuicError("failed to get mutable transport config".to_string()))?;
+        let mut server_config =
+            ServerConfig::with_single_cert(vec![cert_der.clone()], key_der.into())
+                .map_err(|e| TransportError::QuicError(e.to_string()))?;
+        let transport_config = Arc::get_mut(&mut server_config.transport).ok_or_else(|| {
+            TransportError::QuicError("failed to get mutable transport config".to_string())
+        })?;
         transport_config.max_concurrent_bidi_streams(16_u32.into());
 
         let server_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
         let server_endpoint = Endpoint::server(server_config, server_addr)
             .map_err(|e| TransportError::QuicError(e.to_string()))?;
-        let listen_addr = server_endpoint.local_addr().map_err(|e| TransportError::QuicError(e.to_string()))?;
+        let listen_addr = server_endpoint
+            .local_addr()
+            .map_err(|e| TransportError::QuicError(e.to_string()))?;
 
         let mut roots = rustls::RootCertStore::empty();
         roots
@@ -131,39 +140,49 @@ impl QuicStreamTransport {
         let client_crypto = rustls::ClientConfig::builder()
             .with_root_certificates(roots)
             .with_no_client_auth();
-        let client_config = ClientConfig::new(Arc::new(quinn::crypto::rustls::QuicClientConfig::try_from(client_crypto)
-            .map_err(|e| TransportError::QuicError(e.to_string()))?));
-        let mut client_endpoint =
-            Endpoint::client(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).map_err(|e| TransportError::QuicError(e.to_string()))?;
+        let client_config = ClientConfig::new(Arc::new(
+            quinn::crypto::rustls::QuicClientConfig::try_from(client_crypto)
+                .map_err(|e| TransportError::QuicError(e.to_string()))?,
+        ));
+        let mut client_endpoint = Endpoint::client(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
+            .map_err(|e| TransportError::QuicError(e.to_string()))?;
         client_endpoint.set_default_client_config(client_config);
 
         let server_task = tokio::spawn(async move {
             let incoming = server_endpoint.accept().await.ok_or_else(|| {
                 TransportError::QuicError("server accept returned none".to_string())
             })?;
-            let conn = incoming.await.map_err(|e| TransportError::QuicError(e.to_string()))?;
+            let conn = incoming
+                .await
+                .map_err(|e| TransportError::QuicError(e.to_string()))?;
             let (mut send, mut recv) = conn
                 .accept_bi()
                 .await
                 .map_err(|e| TransportError::QuicError(e.to_string()))?;
             let decoded = QuicStreamTransport::read_framed_event(&mut recv).await?;
             QuicStreamTransport::write_framed_event(&mut send, &decoded).await?;
-            send.finish().map_err(|e| TransportError::QuicError(e.to_string()))?;
+            send.finish()
+                .map_err(|e| TransportError::QuicError(e.to_string()))?;
             Ok::<TelemetryEvent, TransportError>(decoded)
         });
 
         let connecting = client_endpoint
             .connect(listen_addr, "localhost")
             .map_err(|e| TransportError::QuicError(e.to_string()))?;
-        let conn = connecting.await.map_err(|e| TransportError::QuicError(e.to_string()))?;
+        let conn = connecting
+            .await
+            .map_err(|e| TransportError::QuicError(e.to_string()))?;
         let (mut send, mut recv) = conn
             .open_bi()
             .await
             .map_err(|e| TransportError::QuicError(e.to_string()))?;
         QuicStreamTransport::write_framed_event(&mut send, &event).await?;
-        send.finish().map_err(|e| TransportError::QuicError(e.to_string()))?;
+        send.finish()
+            .map_err(|e| TransportError::QuicError(e.to_string()))?;
         let echoed = QuicStreamTransport::read_framed_event(&mut recv).await?;
-        let _ = server_task.await.map_err(|e| TransportError::QuicError(e.to_string()))??;
+        let _ = server_task
+            .await
+            .map_err(|e| TransportError::QuicError(e.to_string()))??;
         Ok(echoed)
     }
 }
@@ -224,7 +243,8 @@ mod tests {
     fn framed_event_roundtrip() {
         let e = event("run-a", EventType::RunStarted, 1);
         let framed = QuicStreamTransport::frame_event(&e).expect("frame must succeed");
-        let decoded = QuicStreamTransport::parse_framed_event(&framed).expect("decode must succeed");
+        let decoded =
+            QuicStreamTransport::parse_framed_event(&framed).expect("decode must succeed");
         assert_eq!(decoded.run_id, "run-a");
         assert!(matches!(decoded.event_type, EventType::RunStarted));
     }

@@ -5,12 +5,12 @@
 //! the Transport trait. The caller is unaware of which transport is active.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::stream::BoxStream;
-use tokio::sync::{RwLock, broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_stream::wrappers::ReceiverStream;
 
 /// A telemetry event emitted during workflow execution.
@@ -170,7 +170,9 @@ impl Transport for HttpSseTransport {
                         }
                     }
                     Err(e) => {
-                        let _ = event_tx.send(Err(TransportError::Unavailable(e.to_string()))).await;
+                        let _ = event_tx
+                            .send(Err(TransportError::Unavailable(e.to_string())))
+                            .await;
                         break;
                     }
                 }
@@ -220,7 +222,10 @@ mod tests {
     async fn sse_transport_delivers_to_subscriber() {
         let transport = HttpSseTransport::new();
         let run_id = "run-1";
-        let mut stream = transport.subscribe(run_id).await.expect("subscribe should succeed");
+        let mut stream = transport
+            .subscribe(run_id)
+            .await
+            .expect("subscribe should succeed");
 
         let status = transport
             .send_event(run_id, sample_event(run_id, EventType::RunStarted, 1))
@@ -237,7 +242,10 @@ mod tests {
     async fn sse_transport_tracks_metrics() {
         let transport = HttpSseTransport::new();
         let run_id = "run-2";
-        let mut stream = transport.subscribe(run_id).await.expect("subscribe should succeed");
+        let mut stream = transport
+            .subscribe(run_id)
+            .await
+            .expect("subscribe should succeed");
 
         for i in 0..3 {
             transport

@@ -2,7 +2,7 @@ use futures::StreamExt;
 use sc_transport_core::{EventType, HttpSseTransport, TelemetryEvent, Transport};
 use sc_transport_datagrams::QuicDatagramTransport;
 use sc_transport_quic::QuicStreamTransport;
-use tokio::time::{Duration, timeout};
+use tokio::time::{timeout, Duration};
 
 async fn send_sequence<T: Transport>(transport: &T, run_id: &str) {
     let seq = [
@@ -60,7 +60,10 @@ async fn transport_transparency_final_state_identical() {
 
     let mut sse_stream = sse.subscribe(run_id).await.expect("sse subscribe");
     let mut quic_stream = quic.subscribe(run_id).await.expect("quic subscribe");
-    let mut datagram_stream = datagram.subscribe(run_id).await.expect("datagram subscribe");
+    let mut datagram_stream = datagram
+        .subscribe(run_id)
+        .await
+        .expect("datagram subscribe");
 
     send_sequence(&sse, run_id).await;
     send_sequence(&quic, run_id).await;

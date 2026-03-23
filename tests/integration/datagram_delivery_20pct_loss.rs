@@ -1,7 +1,7 @@
 use futures::StreamExt;
 use sc_transport_core::{EventType, TelemetryEvent, Transport};
 use sc_transport_datagrams::QuicDatagramTransport;
-use tokio::time::{Duration, timeout};
+use tokio::time::{timeout, Duration};
 
 #[tokio::test]
 async fn datagram_delivery_20pct_loss_simulated() {
