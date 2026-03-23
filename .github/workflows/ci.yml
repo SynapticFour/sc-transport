@@ -1,0 +1,38 @@
+name: sc-transport CI
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        rust: [stable, "1.75"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+          components: clippy, rustfmt
+      - run: cargo build --workspace --all-features
+      - run: cargo test --workspace
+      - run: cargo clippy --workspace --all-features -- -D warnings
+      - run: cargo fmt --all -- --check
+
+  test-transport-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test -p sc-transport-core
+      - run: cargo test -p sc-transport-quic --features quic-streams
+
+  test-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --test sse_basic
+      - run: cargo test --test quic_stream_basic
+      - run: cargo test --test transport_transparency

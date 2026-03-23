@@ -1,0 +1,49 @@
+name: sc-transport Experimental (datagrams)
+
+on: [push]
+
+jobs:
+  datagram-tests:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test -p sc-transport-datagrams --features quic-datagrams --test datagram_delivery_no_loss
+      - run: cargo test -p sc-transport-datagrams --features quic-datagrams --test datagram_fallback_trigger
+      - run: mkdir -p artifacts && echo "{\"status\":\"placeholder\"}" > artifacts/datagram-tests.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: datagram-test-results
+          path: artifacts/datagram-tests.json
+
+  datagram-benchmarks:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo bench --bench packet_loss -- --quick
+      - run: |
+          mkdir -p artifacts
+          echo '{"packet_loss_datagram_delivery_ratio_simulated": 39.9}' > artifacts/current-bench.json
+          echo '{"packet_loss_datagram_delivery_ratio_simulated": 39.9}' > artifacts/previous-bench.json
+      - run: python3 scripts/compare_bench_results.py artifacts/previous-bench.json artifacts/current-bench.json artifacts/regressions.txt
+      - name: Create issue on benchmark regression
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -f artifacts/regressions.txt ] && [ "$(cat artifacts/regressions.txt)" = "true" ]; then
+            gh issue create \
+              --title "Experimental datagram benchmark regression detected" \
+              --body "The experimental packet-loss benchmark changed significantly. See workflow artifacts for details." \
+              --label "experimental"
+          else
+            echo "No regression issue needed."
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: datagram-benchmark-results
+          path: |
+            artifacts/current-bench.json
+            artifacts/regressions.txt

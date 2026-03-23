@@ -1,0 +1,16 @@
+[package]
+name = "sc-transport-core"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Transport trait and stable SSE implementation for Synaptic Core telemetry"
+
+[dependencies]
+async-trait = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true, features = ["sync"] }
+thiserror = { workspace = true }
+rmp-serde = { workspace = true }

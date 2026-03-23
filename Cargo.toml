@@ -1,0 +1,90 @@
+[workspace]
+members = [
+    "crates/sc-transport-core",
+    "crates/sc-transport-quic",
+    "crates/sc-transport-datagrams",
+]
+resolver = "2"
+
+[package]
+name = "sc-transport"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Independent telemetry transport layer for Synaptic Core"
+
+[workspace.package]
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Synaptic Four"]
+repository = "https://github.com/SynapticFour/sc-transport"
+
+[workspace.dependencies]
+async-trait = "0.1"
+futures = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["io-util", "macros", "rt-multi-thread", "sync", "time"] }
+rmp-serde = "1"
+tokio-stream = "0.1"
+thiserror = "2"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[dependencies]
+sc-transport-core = { path = "crates/sc-transport-core" }
+sc-transport-quic = { path = "crates/sc-transport-quic" }
+sc-transport-datagrams = { path = "crates/sc-transport-datagrams" }
+
+[dev-dependencies]
+criterion = { workspace = true }
+futures = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+
+[[test]]
+name = "sse_basic"
+path = "tests/integration/sse_basic.rs"
+
+[[test]]
+name = "sse_fallback"
+path = "tests/integration/sse_fallback.rs"
+
+[[test]]
+name = "quic_stream_basic"
+path = "tests/integration/quic_stream_basic.rs"
+
+[[test]]
+name = "quic_stream_reconnect"
+path = "tests/integration/quic_stream_reconnect.rs"
+
+[[test]]
+name = "datagram_delivery_no_loss"
+path = "tests/integration/datagram_delivery_no_loss.rs"
+
+[[test]]
+name = "datagram_delivery_5pct_loss"
+path = "tests/integration/datagram_delivery_5pct_loss.rs"
+
+[[test]]
+name = "datagram_delivery_20pct_loss"
+path = "tests/integration/datagram_delivery_20pct_loss.rs"
+
+[[test]]
+name = "datagram_fallback_trigger"
+path = "tests/integration/datagram_fallback_trigger.rs"
+
+[[test]]
+name = "transport_transparency"
+path = "tests/integration/transport_transparency.rs"
+
+[[bench]]
+name = "throughput"
+harness = false
+
+[[bench]]
+name = "latency"
+harness = false
+
+[[bench]]
+name = "packet_loss"
+harness = false
