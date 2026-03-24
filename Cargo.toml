@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/sc-transport-core",
+    "crates/sc-transport-sse",
     "crates/sc-transport-quic",
     "crates/sc-transport-datagrams",
 ]
@@ -32,6 +33,7 @@ criterion = { version = "0.5", features = ["html_reports"] }
 
 [dependencies]
 sc-transport-core = { path = "crates/sc-transport-core" }
+sc-transport-sse = { path = "crates/sc-transport-sse" }
 sc-transport-quic = { path = "crates/sc-transport-quic" }
 sc-transport-datagrams = { path = "crates/sc-transport-datagrams" }
 

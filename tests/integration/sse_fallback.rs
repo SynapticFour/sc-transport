@@ -1,6 +1,6 @@
-use sc_transport_core::HttpSseTransport;
 use sc_transport_core::Transport;
 use sc_transport_quic::QuicStreamTransport;
+use sc_transport_sse::HttpSseTransport;
 
 #[tokio::test]
 async fn sse_is_always_available_fallback_target() {

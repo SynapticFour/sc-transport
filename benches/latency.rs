@@ -1,6 +1,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use futures::StreamExt;
-use sc_transport_core::{EventType, HttpSseTransport, TelemetryEvent, Transport};
+use sc_transport_core::{EventType, TelemetryEvent, Transport};
+use sc_transport_sse::HttpSseTransport;
 use std::time::Instant;
 use tokio::runtime::Runtime;
 

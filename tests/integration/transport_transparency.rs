@@ -1,32 +1,16 @@
 use futures::StreamExt;
-use sc_transport_core::{EventType, HttpSseTransport, TelemetryEvent, Transport};
+use sc_transport_core::{EventType, TelemetryEvent, Transport};
 use sc_transport_datagrams::QuicDatagramTransport;
 use sc_transport_quic::QuicStreamTransport;
+use sc_transport_sse::HttpSseTransport;
 use tokio::time::{timeout, Duration};
 
+#[path = "../harness/fixtures.rs"]
+mod fixtures;
+
 async fn send_sequence<T: Transport>(transport: &T, run_id: &str) {
-    let seq = [
-        EventType::RunStarted,
-        EventType::TaskQueued,
-        EventType::TaskStarted,
-        EventType::Progress,
-        EventType::TaskCompleted,
-        EventType::RunCompleted,
-    ];
-    for (i, event_type) in seq.into_iter().enumerate() {
-        transport
-            .send_event(
-                run_id,
-                TelemetryEvent {
-                    run_id: run_id.to_string(),
-                    task_id: None,
-                    event_type,
-                    timestamp_ms: i as u64,
-                    payload: serde_json::json!({ "i": i }),
-                },
-            )
-            .await
-            .expect("send");
+    for event in fixtures::deterministic_sequence(run_id) {
+        transport.send_event(run_id, event).await.expect("send");
     }
 }
 

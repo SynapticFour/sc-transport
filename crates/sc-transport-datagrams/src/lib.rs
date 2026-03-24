@@ -4,9 +4,10 @@
 
 use async_trait::async_trait;
 use sc_transport_core::{
-    DeliveryStatus, EventStream, EventType, HttpSseTransport, TelemetryEvent, Transport,
-    TransportError, TransportMetrics,
+    DeliveryStatus, EventStream, EventType, TelemetryEvent, Transport, TransportError,
+    TransportMetrics,
 };
+use sc_transport_sse::HttpSseTransport;
 use std::collections::VecDeque;
 #[cfg(feature = "quic-datagrams")]
 use std::net::{Ipv4Addr, SocketAddr};
@@ -295,8 +296,8 @@ impl Transport for QuicDatagramTransport {
 mod tests {
     use super::*;
     use futures::StreamExt;
-    use sc_transport_core::HttpSseTransport;
     use sc_transport_quic::QuicStreamTransport;
+    use sc_transport_sse::HttpSseTransport;
     use tokio::time::{timeout, Duration};
 
     fn progress(run_id: &str, idx: u64) -> TelemetryEvent {

@@ -11,6 +11,7 @@ quic-datagrams = ["dep:quinn", "dep:rustls", "dep:rcgen"]
 
 [dependencies]
 sc-transport-core = { path = "../sc-transport-core" }
+sc-transport-sse = { path = "../sc-transport-sse" }
 async-trait = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }

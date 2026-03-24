@@ -930,6 +930,7 @@ dependencies = [
  "sc-transport-core",
  "sc-transport-datagrams",
  "sc-transport-quic",
+ "sc-transport-sse",
  "serde_json",
  "tokio",
 ]
@@ -940,12 +941,9 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "futures",
- "rmp-serde",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
- "tokio",
- "tokio-stream",
 ]
 
 [[package]]
@@ -960,6 +958,7 @@ dependencies = [
  "rustls",
  "sc-transport-core",
  "sc-transport-quic",
+ "sc-transport-sse",
  "serde",
  "serde_json",
  "tokio",
@@ -976,9 +975,22 @@ dependencies = [
  "rmp-serde",
  "rustls",
  "sc-transport-core",
+ "sc-transport-sse",
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "sc-transport-sse"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "futures",
+ "rmp-serde",
+ "sc-transport-core",
+ "tokio",
+ "tokio-stream",
 ]
 
 [[package]]
@@ -1218,20 +1230,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32da49809aab5c3bc678af03902d4ccddea2a87d028d86392a4b1560c6906c70"
 dependencies = [
  "futures-core",
- "pin-project-lite",
- "tokio",
- "tokio-util",
-]
-
-[[package]]
-name = "tokio-util"
-version = "0.7.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ae9cec805b01e8fc3fd2fe289f89149a9b66dd16786abd8b19cfa7b48cb0098"
-dependencies = [
- "bytes",
- "futures-core",
- "futures-sink",
  "pin-project-lite",
  "tokio",
 ]

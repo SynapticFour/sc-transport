@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use sc_transport_core::{
-    DeliveryStatus, EventStream, HttpSseTransport, TelemetryEvent, Transport, TransportError,
-    TransportMetrics,
+    DeliveryStatus, EventStream, TelemetryEvent, Transport, TransportError, TransportMetrics,
 };
+use sc_transport_sse::HttpSseTransport;
 #[cfg(feature = "quic-streams")]
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::atomic::{AtomicU64, Ordering};

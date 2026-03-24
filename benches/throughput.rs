@@ -1,8 +1,9 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use futures::StreamExt;
-use sc_transport_core::{EventType, HttpSseTransport, TelemetryEvent, Transport};
+use sc_transport_core::{EventType, TelemetryEvent, Transport};
 use sc_transport_datagrams::QuicDatagramTransport;
 use sc_transport_quic::QuicStreamTransport;
+use sc_transport_sse::HttpSseTransport;
 use tokio::runtime::Runtime;
 use tokio::time::{timeout, Duration};
 

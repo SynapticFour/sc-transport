@@ -1,5 +1,6 @@
 use futures::StreamExt;
-use sc_transport_core::{EventType, HttpSseTransport, TelemetryEvent, Transport};
+use sc_transport_core::{EventType, TelemetryEvent, Transport};
+use sc_transport_sse::HttpSseTransport;
 
 #[tokio::test]
 async fn sse_basic_delivers_events() {
