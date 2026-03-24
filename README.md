@@ -31,6 +31,7 @@ For downstream runtime consumers, see:
 
 - [Compatibility Contract](docs/COMPATIBILITY-CONTRACT.md)
 - [Synaptic-Core Migration Guide](docs/MIGRATION-SYNAPTIC-CORE.md)
+- [Synaptic-Core Migration Guide (requested path)](docs/synaptic-core-migration.md)
 
 **`sc-transport-datagrams` will not reach v1.0 until production measurements
 confirm it performs as intended in real scientific deployments.**

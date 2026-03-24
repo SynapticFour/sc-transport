@@ -1,6 +1,9 @@
 use sc_transport_core::{DeliveryStatus, EventType, TelemetryEvent, Transport};
 use sc_transport_datagrams::QuicDatagramTransport;
 
+#[path = "../harness/artifacts.rs"]
+mod artifacts;
+
 #[tokio::test]
 async fn datagram_fallback_trigger_emits_fallback_status() {
     let transport = QuicDatagramTransport::new();
@@ -22,4 +25,8 @@ async fn datagram_fallback_trigger_emits_fallback_status() {
 
     assert!(matches!(status, DeliveryStatus::FellBack { .. }));
     assert!(transport.metrics().fallback_count >= 1);
+    artifacts::maybe_write_artifact(
+        "datagram_fallback_trigger",
+        r#"{"test":"datagram_fallback_trigger","fallback":true}"#,
+    );
 }

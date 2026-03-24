@@ -2,6 +2,9 @@ use futures::StreamExt;
 use sc_transport_core::{EventType, TelemetryEvent, Transport};
 use sc_transport_quic::QuicStreamTransport;
 
+#[path = "../harness/artifacts.rs"]
+mod artifacts;
+
 #[tokio::test]
 async fn quic_stream_basic_send_subscribe() {
     let transport = QuicStreamTransport::new();
@@ -24,4 +27,8 @@ async fn quic_stream_basic_send_subscribe() {
 
     let event = stream.next().await.expect("item").expect("ok");
     assert!(matches!(event.event_type, EventType::TaskStarted));
+    artifacts::maybe_write_artifact(
+        "quic_stream_basic",
+        r#"{"test":"quic_stream_basic","status":"ok"}"#,
+    );
 }

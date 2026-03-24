@@ -2,6 +2,9 @@ use futures::StreamExt;
 use sc_transport_core::{EventType, TelemetryEvent, Transport};
 use sc_transport_sse::HttpSseTransport;
 
+#[path = "../harness/artifacts.rs"]
+mod artifacts;
+
 #[tokio::test]
 async fn sse_basic_delivers_events() {
     let transport = HttpSseTransport::new();
@@ -37,4 +40,8 @@ async fn sse_basic_delivers_events() {
     }
 
     assert_eq!(received, 100);
+    artifacts::maybe_write_artifact(
+        "sse_basic",
+        &format!(r#"{{"test":"sse_basic","received":{received}}}"#),
+    );
 }
