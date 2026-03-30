@@ -104,3 +104,4 @@ harness = false
 [[bench]]
 name = "packet_loss"
 harness = false
+required-features = ["transport-datagrams"]
