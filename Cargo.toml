@@ -56,34 +56,42 @@ path = "tests/integration/sse_basic.rs"
 [[test]]
 name = "sse_fallback"
 path = "tests/integration/sse_fallback.rs"
+required-features = ["transport-quic"]
 
 [[test]]
 name = "quic_stream_basic"
 path = "tests/integration/quic_stream_basic.rs"
+required-features = ["transport-quic"]
 
 [[test]]
 name = "quic_stream_reconnect"
 path = "tests/integration/quic_stream_reconnect.rs"
+required-features = ["transport-quic"]
 
 [[test]]
 name = "datagram_delivery_no_loss"
 path = "tests/integration/datagram_delivery_no_loss.rs"
+required-features = ["transport-datagrams"]
 
 [[test]]
 name = "datagram_delivery_5pct_loss"
 path = "tests/integration/datagram_delivery_5pct_loss.rs"
+required-features = ["transport-datagrams"]
 
 [[test]]
 name = "datagram_delivery_20pct_loss"
 path = "tests/integration/datagram_delivery_20pct_loss.rs"
+required-features = ["transport-datagrams"]
 
 [[test]]
 name = "datagram_fallback_trigger"
 path = "tests/integration/datagram_fallback_trigger.rs"
+required-features = ["transport-datagrams"]
 
 [[test]]
 name = "transport_transparency"
 path = "tests/integration/transport_transparency.rs"
+required-features = ["transport-quic", "transport-datagrams"]
 
 [[bench]]
 name = "throughput"

@@ -1,6 +1,6 @@
 # sc-transport
 
-Transport layer for [Synaptic Core](https://github.com/SynapticFour/synaptic-core).
+Transport layer for [Synaptic Core](https://github.com/SynapticFour/Synaptic-Core).
 Provides implementations of the `Transport` trait for telemetry delivery:
 
 | Crate | Transport | Status | When to use |
@@ -10,12 +10,13 @@ Provides implementations of the `Transport` trait for telemetry delivery:
 | sc-transport-quic | QUIC reliable streams | **Optional** | When 0-RTT reconnection or no HoL blocking matters. |
 | sc-transport-datagrams | QUIC unreliable datagrams | **Experimental (0.x)** | Research only. See [LIMITATIONS](docs/LIMITATIONS.md). |
 
-## The transparency guarantee
+## Transparency contract
 
 All three transports implement the same `Transport` trait. Switching between
-them is a configuration change. Clients receive identical final workflow state
-regardless of which transport is active. If QUIC datagrams underperform, the
-system falls back to SSE automatically.
+them is a configuration change. Under the documented assumptions and test
+scope, clients are expected to observe the same final workflow state regardless
+of active transport. If QUIC datagrams underperform, the system falls back to
+SSE automatically.
 
 ## The experiment
 
@@ -31,7 +32,7 @@ For downstream runtime consumers, see:
 
 - [Compatibility Contract](docs/COMPATIBILITY-CONTRACT.md)
 - [Synaptic-Core Migration Guide](docs/MIGRATION-SYNAPTIC-CORE.md)
-- [Synaptic-Core Migration Guide (requested path)](docs/synaptic-core-migration.md)
+- [Synaptic-Core Migration Guide (legacy path alias)](docs/synaptic-core-migration.md)
 
 **`sc-transport-datagrams` will not reach v1.0 until production measurements
 confirm it performs as intended in real scientific deployments.**
