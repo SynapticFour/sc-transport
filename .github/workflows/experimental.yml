@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo bench --bench packet_loss -- --quick
+      - run: cargo bench --features transport-datagrams --bench packet_loss -- --quick
       - run: |
           mkdir -p artifacts
           echo '{"packet_loss_datagram_delivery_ratio_simulated": 39.9}' > artifacts/current-bench.json

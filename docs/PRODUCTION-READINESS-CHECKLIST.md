@@ -21,7 +21,7 @@ production use in the Synaptic Core stack.
 - `cargo test --workspace --all-features`
 - `cargo bench --bench throughput -- --quick`
 - `cargo bench --bench latency -- --quick`
-- `cargo bench --bench packet_loss -- --quick`
+- `cargo bench --features transport-datagrams --bench packet_loss -- --quick`
 - `scripts/netem_runner.sh lo 20 datagram_fallback_trigger`
 
 ### Required Artifacts
