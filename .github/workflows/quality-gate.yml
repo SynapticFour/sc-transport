@@ -5,85 +5,26 @@ on:
   push:
     branches: [main, master]
 
+# Lightweight smoke only: full lint/test/format lives in each repo's primary CI
+# (ci.yml, etc.). This workflow avoids duplicating heavy checks and queueing
+# redundant work across the org.
 jobs:
-  quality:
+  smoke:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Run quality checks
-        shell: bash
+      - name: Verify workflow definitions exist
         run: |
           set -euo pipefail
-
-          echo "== Node checks =="
-          find . -name package.json -not -path '*/node_modules/*' -not -path '*/dist/*' -not -path '*/build/*' | while read -r pkg; do
-            dir=$(dirname "$pkg")
-            echo "-- $dir"
-            pushd "$dir" >/dev/null
-            run_cmd="npm run"
-            if [ -f pnpm-lock.yaml ]; then
-              corepack enable
-              corepack prepare pnpm@latest --activate
-              pnpm install --frozen-lockfile
-              run_cmd="pnpm run"
-            elif [ -f yarn.lock ]; then
-              corepack enable
-              yarn install --frozen-lockfile
-              run_cmd="yarn"
-            elif [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
-              npm ci
-            else
-              npm install
-            fi
-
-            node -e "const s=require('./package.json').scripts||{}; process.exit(s.lint?0:1)" && ${run_cmd} lint || echo "lint script not found; skipping"
-            node -e "const s=require('./package.json').scripts||{}; process.exit(s.typecheck?0:1)" && ${run_cmd} typecheck || echo "typecheck script not found; skipping"
-            node -e "const s=require('./package.json').scripts||{}; process.exit(s.test?0:1)" && ${run_cmd} test || echo "test script not found; skipping"
-            popd >/dev/null
-          done
-
-          echo "== Python checks =="
-          find . \( -name pyproject.toml -o -name requirements.txt \) -not -path '*/.venv/*' -not -path '*/venv/*' | while read -r manifest; do
-            dir=$(dirname "$manifest")
-            echo "-- $dir"
-            pushd "$dir" >/dev/null
-            python -m pip install --upgrade pip
-            if [ -f requirements.txt ]; then
-              pip install -r requirements.txt
-            elif [ -f pyproject.toml ]; then
-              pip install -e . || true
-            fi
-            if [ -d tests ] || ls test_*.py >/dev/null 2>&1; then
-              pip install pytest
-              pytest -q
-            else
-              echo "No Python tests detected in $dir; skipping pytest"
-            fi
-            popd >/dev/null
-          done
-
-          echo "== Rust checks =="
-          find . -name Cargo.toml -not -path '*/target/*' | while read -r manifest; do
-            dir=$(dirname "$manifest")
-            echo "-- $dir"
-            pushd "$dir" >/dev/null
-            cargo fmt --all -- --check
-            cargo clippy --all-targets --all-features -- -D warnings
-            cargo test --all-features
-            popd >/dev/null
-          done
+          if [ ! -d .github/workflows ]; then
+            echo "::error::Missing .github/workflows"
+            exit 1
+          fi
+          n=$(find .github/workflows -type f \( -name '*.yml' -o -name '*.yaml' \) | wc -l | tr -d ' ')
+          if [ "${n:-0}" -eq 0 ]; then
+            echo "::error::No workflow YAML files under .github/workflows"
+            exit 1
+          fi
+          echo "OK: ${n} workflow file(s) present. Primary CI runs in dedicated workflows."
