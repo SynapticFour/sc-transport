@@ -113,7 +113,8 @@ impl FileSender {
             };
             let mut data = self.connection.open_data_stream().await?;
             let desc_bytes = encode(&desc)?;
-            data.write_all(&(desc_bytes.len() as u32).to_be_bytes()).await?;
+            data.write_all(&(desc_bytes.len() as u32).to_be_bytes())
+                .await?;
             data.write_all(&desc_bytes).await?;
             data.write_all(&chunk).await?;
             data.finish()?;

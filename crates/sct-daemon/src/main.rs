@@ -3,19 +3,19 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use serde::{Deserialize, Serialize};
 use sct_core::protocol::CompressionType;
 use sct_core::receiver::{FileReceiver, ReceiverConfig};
 use sct_core::sender::{FileSender, SenderConfig};
 use sct_core::transport::{SctEndpoint, TransportConfig};
+use serde::{Deserialize, Serialize};
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::path::{Path as StdPath, PathBuf};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{Mutex, Semaphore};
 use uuid::Uuid;
@@ -149,10 +149,12 @@ struct PriorityUpdate {
     priority: u8,
 }
 
+type QueueEntry = (Reverse<u8>, u64, Uuid);
+
 #[derive(Clone)]
 struct AppState {
     cfg: SctConfig,
-    queue: Arc<Mutex<BinaryHeap<(Reverse<u8>, u64, Uuid)>>>,
+    queue: Arc<Mutex<BinaryHeap<QueueEntry>>>,
     records: Arc<Mutex<HashMap<Uuid, TransferRecord>>>,
     semaphore: Arc<Semaphore>,
     sequence: Arc<Mutex<u64>>,
@@ -180,7 +182,9 @@ struct TransferEventRecord {
 async fn main() -> Result<()> {
     let cfg = load_config("sct.toml").unwrap_or_default();
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::new(cfg.logging.level.clone()))
+        .with_env_filter(tracing_subscriber::EnvFilter::new(
+            cfg.logging.level.clone(),
+        ))
         .init();
 
     let state = AppState {
@@ -242,21 +246,23 @@ async fn load_records_into_state(state: &AppState) -> Result<()> {
                 continue;
             }
             let event: TransferEventRecord = serde_json::from_str(line)?;
-            let entry = records.entry(event.transfer_id).or_insert_with(|| TransferRecord {
-                transfer_id: event.transfer_id,
-                source: event.source.clone().unwrap_or_default(),
-                destination: event.destination.clone().unwrap_or_default(),
-                priority: event.priority.unwrap_or(5),
-                status: event.status.clone().unwrap_or(TransferStatus::Queued),
-                progress_pct: event.progress_pct.unwrap_or(0.0),
-                throughput_mbps: event.throughput_mbps.unwrap_or(0.0),
-                bytes_transferred: event.bytes_transferred.unwrap_or(0),
-                bytes_total: event.bytes_total.unwrap_or(0),
-                error: event.error.clone(),
-                created_at_unix_ms: event.ts_unix_ms,
-                updated_at_unix_ms: event.ts_unix_ms,
-                attempts: 0,
-            });
+            let entry = records
+                .entry(event.transfer_id)
+                .or_insert_with(|| TransferRecord {
+                    transfer_id: event.transfer_id,
+                    source: event.source.clone().unwrap_or_default(),
+                    destination: event.destination.clone().unwrap_or_default(),
+                    priority: event.priority.unwrap_or(5),
+                    status: event.status.clone().unwrap_or(TransferStatus::Queued),
+                    progress_pct: event.progress_pct.unwrap_or(0.0),
+                    throughput_mbps: event.throughput_mbps.unwrap_or(0.0),
+                    bytes_transferred: event.bytes_transferred.unwrap_or(0),
+                    bytes_total: event.bytes_total.unwrap_or(0),
+                    error: event.error.clone(),
+                    created_at_unix_ms: event.ts_unix_ms,
+                    updated_at_unix_ms: event.ts_unix_ms,
+                    attempts: 0,
+                });
             apply_event(entry, &event);
         }
     }
@@ -357,7 +363,9 @@ fn build_router(state: AppState) -> Router {
         .route("/v1/transfer", post(submit_transfer))
         .route(
             "/v1/transfer/{id}",
-            get(get_transfer).delete(cancel_transfer).patch(update_priority),
+            get(get_transfer)
+                .delete(cancel_transfer)
+                .patch(update_priority),
         )
         .route("/v1/transfers", get(list_transfers))
         .route("/v1/metrics", get(metrics))
@@ -515,8 +523,14 @@ async fn list_transfers(
 
 async fn metrics(State(state): State<AppState>) -> (StatusCode, String) {
     let records = state.records.lock().await;
-    let active = records.values().filter(|r| r.status == TransferStatus::Active).count();
-    let queued = records.values().filter(|r| r.status == TransferStatus::Queued).count();
+    let active = records
+        .values()
+        .filter(|r| r.status == TransferStatus::Active)
+        .count();
+    let queued = records
+        .values()
+        .filter(|r| r.status == TransferStatus::Queued)
+        .count();
     let body = format!(
         "sct_active_transfers {}\nsct_queued_transfers {}\n",
         active, queued
@@ -950,16 +964,8 @@ mod tests {
         let state = test_state();
         let id1 = Uuid::new_v4();
         let id2 = Uuid::new_v4();
-        state
-            .queue
-            .lock()
-            .await
-            .push((Reverse(10), 2, id1));
-        state
-            .queue
-            .lock()
-            .await
-            .push((Reverse(1), 1, id2));
+        state.queue.lock().await.push((Reverse(10), 2, id1));
+        state.queue.lock().await.push((Reverse(1), 1, id2));
         let first = state.queue.lock().await.pop().expect("first");
         assert_eq!(first.2, id2);
     }
@@ -1014,7 +1020,9 @@ mod tests {
         std::env::set_var("HOME", temp.path());
         let data_dir = temp.path().join("data");
         let input_path = temp.path().join("payload.bin");
-        let mut in_file = tokio::fs::File::create(&input_path).await.expect("create input");
+        let mut in_file = tokio::fs::File::create(&input_path)
+            .await
+            .expect("create input");
         in_file
             .write_all(b"hello-from-daemon-e2e")
             .await
@@ -1067,10 +1075,7 @@ mod tests {
             .expect("client endpoint");
             let server_name = format!("daemon-e2e-{port}");
             let conn = endpoint
-                .connect(
-                    SocketAddr::from(([127, 0, 0, 1], port)),
-                    &server_name,
-                )
+                .connect(SocketAddr::from(([127, 0, 0, 1], port)), &server_name)
                 .await
                 .expect("connect");
             let sender = FileSender::new(
@@ -1083,7 +1088,9 @@ mod tests {
             sender.send(&input_path).await.expect("send");
         });
 
-        run_transfer_job(&state, transfer_id).await.expect("receive job");
+        run_transfer_job(&state, transfer_id)
+            .await
+            .expect("receive job");
         sender_task.await.expect("sender task");
 
         let out = data_dir.join("incoming").join("payload.bin");
@@ -1126,7 +1133,13 @@ mod tests {
             events_path: Arc::new(temp.path().join("events.jsonl")),
         };
         load_records_into_state(&state).await.expect("load");
-        let rec = state.records.lock().await.get(&id).cloned().expect("record");
+        let rec = state
+            .records
+            .lock()
+            .await
+            .get(&id)
+            .cloned()
+            .expect("record");
         assert_eq!(rec.status, TransferStatus::Queued);
         let head = state.queue.lock().await.pop().expect("queued item");
         assert_eq!(head.2, id);
@@ -1168,7 +1181,13 @@ mod tests {
         };
         load_records_into_state(&state).await.expect("load");
         assert!(state.queue.lock().await.pop().is_none());
-        let rec = state.records.lock().await.get(&id).cloned().expect("record");
+        let rec = state
+            .records
+            .lock()
+            .await
+            .get(&id)
+            .cloned()
+            .expect("record");
         assert_eq!(rec.status, TransferStatus::Cancelled);
     }
 
@@ -1218,7 +1237,9 @@ mod tests {
         let data_dir = temp.path().join("data");
         let input_path = temp.path().join("payload.bin");
         let payload = b"abcdef0123456789";
-        let mut in_file = tokio::fs::File::create(&input_path).await.expect("create input");
+        let mut in_file = tokio::fs::File::create(&input_path)
+            .await
+            .expect("create input");
         in_file.write_all(payload).await.expect("write input");
         in_file.flush().await.expect("flush");
 
@@ -1263,7 +1284,10 @@ mod tests {
         let hash = blake3::hash("payload.bin".as_bytes());
         let mut transfer = [0_u8; 16];
         transfer.copy_from_slice(&hash.as_bytes()[..16]);
-        let transfer_hex = transfer.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        let transfer_hex = transfer
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
         let part = out_dir.join(format!("payload.bin.{transfer_hex}.part"));
         let state_file = out_dir.join(format!("payload.bin.{transfer_hex}.state.json"));
         let mut part_file = tokio::fs::File::create(&part).await.expect("create part");
@@ -1296,7 +1320,9 @@ mod tests {
             sender.send(&input_path).await.expect("send");
         });
 
-        run_transfer_job(&state, transfer_id).await.expect("receive job");
+        run_transfer_job(&state, transfer_id)
+            .await
+            .expect("receive job");
         sender_task.await.expect("sender task");
         let final_path = out_dir.join("payload.bin");
         let bytes = tokio::fs::read(final_path).await.expect("read output");
@@ -1371,7 +1397,13 @@ mod tests {
             events_path: Arc::new(temp.path().join("events.jsonl")),
         };
         load_records_into_state(&state).await.expect("load");
-        let rec = state.records.lock().await.get(&id).cloned().expect("record");
+        let rec = state
+            .records
+            .lock()
+            .await
+            .get(&id)
+            .cloned()
+            .expect("record");
         assert_eq!(rec.status, TransferStatus::Completed);
         assert_eq!(rec.bytes_transferred, 100);
         assert_eq!(rec.progress_pct, 100.0);

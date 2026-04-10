@@ -77,8 +77,8 @@ impl ProbeServer {
         if let Some(tcfg) = Arc::get_mut(&mut server_config.transport) {
             tcfg.datagram_receive_buffer_size(Some(2 * 1024 * 1024));
         }
-        let endpoint =
-            quinn::Endpoint::server(server_config, addr).map_err(|e| ProbeError::Unavailable(e.to_string()))?;
+        let endpoint = quinn::Endpoint::server(server_config, addr)
+            .map_err(|e| ProbeError::Unavailable(e.to_string()))?;
         let listen_addr = endpoint
             .local_addr()
             .map_err(|e| ProbeError::Unavailable(e.to_string()))?;
@@ -146,17 +146,15 @@ impl NetworkProbe {
         }
         let vals = rtts.iter().map(|d| d.as_secs_f64()).collect::<Vec<_>>();
         let mean = vals.iter().sum::<f64>() / vals.len() as f64;
-        let var = vals
-            .iter()
-            .map(|v| (v - mean) * (v - mean))
-            .sum::<f64>()
-            / vals.len() as f64;
+        let var = vals.iter().map(|v| (v - mean) * (v - mean)).sum::<f64>() / vals.len() as f64;
         Duration::from_secs_f64(var.sqrt())
     }
 
     pub async fn measure(&self, target_addr: SocketAddr) -> Result<NetworkProfile, ProbeError> {
         use quinn::{ClientConfig, Endpoint};
-        use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+        use rustls::client::danger::{
+            HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
+        };
         use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
         use rustls::{DigitallySignedStruct, SignatureScheme};
 
@@ -253,8 +251,9 @@ impl NetworkProbe {
         }
         let min_rtt = *rtts.iter().min().unwrap_or(&Duration::from_millis(1));
         let max_rtt = *rtts.iter().max().unwrap_or(&min_rtt);
-        let avg_rtt =
-            Duration::from_secs_f64(rtts.iter().map(|d| d.as_secs_f64()).sum::<f64>() / rtts.len() as f64);
+        let avg_rtt = Duration::from_secs_f64(
+            rtts.iter().map(|d| d.as_secs_f64()).sum::<f64>() / rtts.len() as f64,
+        );
         let jitter = Self::compute_jitter(&rtts);
         let loss = 1.0 - (acks as f64 / sent.max(1) as f64);
 
@@ -264,7 +263,9 @@ impl NetworkProbe {
             let p2 = vec![1_u8; 1200];
             let _ = conn.send_datagram(p1.into());
             let _ = conn.send_datagram(p2.into());
-            if let Ok(Ok(_)) = tokio::time::timeout(self.timeout_per_packet, conn.read_datagram()).await {
+            if let Ok(Ok(_)) =
+                tokio::time::timeout(self.timeout_per_packet, conn.read_datagram()).await
+            {
                 let t1 = Instant::now();
                 if let Ok(Ok(_)) =
                     tokio::time::timeout(self.timeout_per_packet, conn.read_datagram()).await
@@ -300,8 +301,9 @@ mod tests {
 
     #[tokio::test]
     async fn loopback_profile_is_datacenter_class() {
-        let (addr, handle) =
-            ProbeServer::start(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).await.expect("server");
+        let (addr, handle) = ProbeServer::start(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
+            .await
+            .expect("server");
         let p = NetworkProbe {
             probe_packet_count: 20,
             probe_duration_secs: 1.0,
@@ -339,17 +341,14 @@ mod tests {
         use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
-            .expect("cert");
+        let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).expect("cert");
         let cert_der: CertificateDer<'static> = CertificateDer::from(cert.cert.der().to_vec());
         let key_der = PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der());
         let server_config =
             ServerConfig::with_single_cert(vec![cert_der], key_der.into()).expect("cfg");
-        let endpoint = quinn::Endpoint::server(
-            server_config,
-            SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
-        )
-        .expect("server");
+        let endpoint =
+            quinn::Endpoint::server(server_config, SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
+                .expect("server");
         let addr = endpoint.local_addr().expect("addr");
         let _task = tokio::spawn(async move {
             while let Some(incoming) = endpoint.accept().await {

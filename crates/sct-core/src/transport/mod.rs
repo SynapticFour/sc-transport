@@ -1,6 +1,8 @@
-use anyhow::Result;
 use crate::congestion::SciBbrConfig;
-use quinn::{ClientConfig, Endpoint, EndpointConfig, RecvStream, SendStream, ServerConfig, TokioRuntime};
+use anyhow::Result;
+use quinn::{
+    ClientConfig, Endpoint, EndpointConfig, RecvStream, SendStream, ServerConfig, TokioRuntime,
+};
 use rcgen::generate_simple_self_signed;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer, ServerName, UnixTime};
@@ -139,8 +141,9 @@ impl SctEndpoint {
                 .map_err(|e| TransportError::Quic(format!("invalid idle timeout: {e}")))?,
         ));
 
-        let socket = configured_udp_socket(config.bind_addr, suggested_buf as usize, config.enable_gso)
-            .map_err(|e| TransportError::Io(e.to_string()))?;
+        let socket =
+            configured_udp_socket(config.bind_addr, suggested_buf as usize, config.enable_gso)
+                .map_err(|e| TransportError::Io(e.to_string()))?;
         let endpoint = Endpoint::new(
             EndpointConfig::default(),
             Some(server_config),
@@ -168,8 +171,9 @@ impl SctEndpoint {
             quinn::crypto::rustls::QuicClientConfig::try_from(rustls_cfg)
                 .map_err(|e| TransportError::Quic(e.to_string()))?,
         ));
-        let socket = configured_udp_socket(config.bind_addr, suggested_buf as usize, config.enable_gso)
-            .map_err(|e| TransportError::Io(e.to_string()))?;
+        let socket =
+            configured_udp_socket(config.bind_addr, suggested_buf as usize, config.enable_gso)
+                .map_err(|e| TransportError::Io(e.to_string()))?;
         let mut endpoint = Endpoint::new(
             EndpointConfig::default(),
             None,
@@ -212,8 +216,16 @@ fn suggested_socket_buffer_bytes(config: &TransportConfig) -> u64 {
     (bdp_bytes * 4).max(32 * 1024 * 1024)
 }
 
-fn configured_udp_socket(bind_addr: SocketAddr, buf_size: usize, enable_gso: bool) -> io::Result<std::net::UdpSocket> {
-    let socket = Socket::new(Domain::for_address(bind_addr), Type::DGRAM, Some(Protocol::UDP))?;
+fn configured_udp_socket(
+    bind_addr: SocketAddr,
+    buf_size: usize,
+    enable_gso: bool,
+) -> io::Result<std::net::UdpSocket> {
+    let socket = Socket::new(
+        Domain::for_address(bind_addr),
+        Type::DGRAM,
+        Some(Protocol::UDP),
+    )?;
     if bind_addr.is_ipv6() {
         if let Err(e) = socket.set_only_v6(false) {
             debug!(%e, "unable to make socket dual-stack");
@@ -280,7 +292,9 @@ fn known_hosts_path() -> PathBuf {
     dir
 }
 
-fn load_known_hosts(path: &PathBuf) -> std::result::Result<HashMap<String, String>, std::io::Error> {
+fn load_known_hosts(
+    path: &PathBuf,
+) -> std::result::Result<HashMap<String, String>, std::io::Error> {
     let mut out = HashMap::new();
     if !path.exists() {
         return Ok(out);
@@ -295,7 +309,10 @@ fn load_known_hosts(path: &PathBuf) -> std::result::Result<HashMap<String, Strin
     Ok(out)
 }
 
-fn write_known_hosts(path: &PathBuf, hosts: &HashMap<String, String>) -> std::result::Result<(), std::io::Error> {
+fn write_known_hosts(
+    path: &PathBuf,
+    hosts: &HashMap<String, String>,
+) -> std::result::Result<(), std::io::Error> {
     let parent = path
         .parent()
         .map(PathBuf::from)
@@ -344,11 +361,7 @@ mod tests {
         let server_addr = server.local_addr().expect("server addr");
         let server_task = tokio::spawn(async move {
             let accepted = server.accept().await.expect("incoming").expect("conn");
-            let (_send, mut recv) = accepted
-                .connection
-                .accept_bi()
-                .await
-                .expect("accept bi");
+            let (_send, mut recv) = accepted.connection.accept_bi().await.expect("accept bi");
             let mut in_buf = vec![0_u8; 1024 * 1024];
             recv.read_exact(&mut in_buf).await.expect("read");
             assert_eq!(in_buf.len(), 1024 * 1024);
@@ -360,7 +373,10 @@ mod tests {
         })
         .expect("client");
 
-        let conn = client.connect(server_addr, "localhost").await.expect("connect");
+        let conn = client
+            .connect(server_addr, "localhost")
+            .await
+            .expect("connect");
         let (mut send, _recv) = conn.open_control_stream().await.expect("open bi");
         let payload = vec![0x5Au8; 1024 * 1024];
         send.write_all(&payload).await.expect("write");

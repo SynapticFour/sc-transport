@@ -48,13 +48,18 @@ async fn quic_stream_continental_wan_delivery() {
         let mut delivered = 0_u64;
         let fut = async {
             for i in 0..500_u64 {
-                let status = transport.send_event(run_id, event(run_id, i)).await.expect("send");
+                let status = transport
+                    .send_event(run_id, event(run_id, i))
+                    .await
+                    .expect("send");
                 if matches!(status, DeliveryStatus::Delivered | DeliveryStatus::Sent) {
                     delivered += 1;
                 }
             }
         };
-        let _ = timeout(Duration::from_secs(30), fut).await.expect("timeout");
+        let _ = timeout(Duration::from_secs(30), fut)
+            .await
+            .expect("timeout");
         assert!(delivered >= 490);
     } else {
         eprintln!("tc netem not available, skipping");
@@ -63,13 +68,17 @@ async fn quic_stream_continental_wan_delivery() {
 
 #[tokio::test]
 async fn datagram_transport_intercontinental_fallback_behavior() {
-    if let Some(_guard) = netem::NetemGuard::try_apply(&netem::NetemConfig::wan_intercontinental()) {
+    if let Some(_guard) = netem::NetemGuard::try_apply(&netem::NetemConfig::wan_intercontinental())
+    {
         let transport = QuicDatagramTransport::new();
         let run_id = "wan-dgram";
         let mut fallback = 0_u64;
         let mut delivered = 0_u64;
         for i in 0..200_u64 {
-            let status = transport.send_event(run_id, event(run_id, i)).await.expect("send");
+            let status = transport
+                .send_event(run_id, event(run_id, i))
+                .await
+                .expect("send");
             match status {
                 DeliveryStatus::FellBack { .. } => fallback += 1,
                 DeliveryStatus::Sent | DeliveryStatus::Delivered => delivered += 1,

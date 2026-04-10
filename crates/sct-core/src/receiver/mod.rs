@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use tokio::fs::{self, OpenOptions};
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::io::SeekFrom;
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 pub struct FileReceiver {
     endpoint: SctEndpoint,
@@ -108,7 +108,9 @@ impl FileReceiver {
             out.set_len(manifest.total_size).await?;
         }
 
-        let remaining = manifest.num_chunks.saturating_sub(received_chunks.len() as u64);
+        let remaining = manifest
+            .num_chunks
+            .saturating_sub(received_chunks.len() as u64);
         for _ in 0..remaining {
             let mut stream = conn.accept_data_stream().await?;
             let mut len_buf = [0_u8; 4];

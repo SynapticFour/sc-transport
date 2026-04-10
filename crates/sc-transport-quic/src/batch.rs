@@ -152,7 +152,9 @@ mod tests {
             }
         });
         for i in 0..5_u64 {
-            let got = QuicStreamTransport::read_framed_event(&mut b).await.expect("read");
+            let got = QuicStreamTransport::read_framed_event(&mut b)
+                .await
+                .expect("read");
             assert_eq!(got.run_id, "r");
             assert_eq!(got.timestamp_ms, i);
         }
@@ -165,8 +167,7 @@ mod tests {
         use quinn::{Endpoint, ServerConfig};
         use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 
-        let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
-            .expect("cert");
+        let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).expect("cert");
         let cert_der: CertificateDer<'static> = CertificateDer::from(cert.cert.der().to_vec());
         let key_der = PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der());
         let mut server_config =
@@ -198,10 +199,7 @@ mod tests {
         });
         let events = (0..512).map(|i| mk("loop", i)).collect::<Vec<_>>();
         let t = QuicStreamTransport::with_server_addr(addr);
-        let res = t
-            .send_events_batch("loop", events)
-            .await
-            .expect("batch");
+        let res = t.send_events_batch("loop", events).await.expect("batch");
         let _ = recv_task.await;
         assert!(res.sent_events >= 480);
         assert!(res.effective_throughput_events_per_sec > 100.0);
@@ -213,8 +211,7 @@ mod tests {
         use quinn::{Endpoint, ServerConfig};
         use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 
-        let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
-            .expect("cert");
+        let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).expect("cert");
         let cert_der: CertificateDer<'static> = CertificateDer::from(cert.cert.der().to_vec());
         let key_der = PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der());
         let mut server_config =

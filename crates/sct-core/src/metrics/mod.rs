@@ -11,10 +11,10 @@ pub struct SctMetrics {
 impl SctMetrics {
     pub fn new() -> Self {
         let registry = Registry::new();
-        let transfers_started = IntCounter::new("sct_transfers_started", "Started transfers")
+        let transfers_started =
+            IntCounter::new("sct_transfers_started", "Started transfers").expect("valid metric");
+        let transfers_completed = IntCounter::new("sct_transfers_completed", "Completed transfers")
             .expect("valid metric");
-        let transfers_completed =
-            IntCounter::new("sct_transfers_completed", "Completed transfers").expect("valid metric");
         let active_transfers =
             IntGauge::new("sct_active_transfers", "Active transfers").expect("valid metric");
         registry
@@ -32,5 +32,11 @@ impl SctMetrics {
             transfers_completed,
             active_transfers,
         }
+    }
+}
+
+impl Default for SctMetrics {
+    fn default() -> Self {
+        Self::new()
     }
 }

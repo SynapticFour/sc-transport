@@ -90,7 +90,10 @@ impl NetemGuard {
                 .map(|o| String::from_utf8_lossy(&o.stdout).to_string());
             let _ = Command::new("sh")
                 .arg("-c")
-                .arg(format!("tc qdisc del dev {} root >/dev/null 2>&1 || true", config.interface))
+                .arg(format!(
+                    "tc qdisc del dev {} root >/dev/null 2>&1 || true",
+                    config.interface
+                ))
                 .status();
             let apply = format!(
                 "tc qdisc add dev {} root netem delay {}ms {}ms loss {}% {}%",

@@ -82,11 +82,7 @@ impl ScientificCongestionController {
                 break;
             }
         }
-        self.max_bandwidth_bps = self
-            .bw_samples
-            .iter()
-            .map(|(_, b)| *b)
-            .fold(0.0, f64::max);
+        self.max_bandwidth_bps = self.bw_samples.iter().map(|(_, b)| *b).fold(0.0, f64::max);
     }
 
     fn update_rtt_model(&mut self, rtt: Duration, now: Instant) {
@@ -172,8 +168,7 @@ impl Controller for ScientificCongestionController {
             }
         }
         self.cwnd = self.cwnd.max(2 * self.config.max_segment_size);
-        self.pacing_rate_bps =
-            (self.cwnd as f64 / self.min_rtt.as_secs_f64().max(0.000_001)) * 8.0;
+        self.pacing_rate_bps = (self.cwnd as f64 / self.min_rtt.as_secs_f64().max(0.000_001)) * 8.0;
     }
 
     fn on_congestion_event(

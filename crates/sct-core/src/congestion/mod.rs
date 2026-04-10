@@ -137,7 +137,9 @@ impl ScientificBbrController {
             }
             BbrState::ProbeBw => {
                 const GAINS: [f64; 8] = [1.25, 0.75, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
-                if now.duration_since(self.round_start) >= self.min_rtt.max(Duration::from_millis(50)) {
+                if now.duration_since(self.round_start)
+                    >= self.min_rtt.max(Duration::from_millis(50))
+                {
                     self.round_start = now;
                     self.probe_bw_cycle_idx = (self.probe_bw_cycle_idx + 1) % GAINS.len();
                     self.ack_events_in_round = 0;
@@ -148,14 +150,16 @@ impl ScientificBbrController {
                     ((self.config.cwnd_gain * self.bdp as f64) * gain * app_limited_scale) as u64;
             }
             BbrState::ProbeRtt => {
-                self.cwnd = ((self.config.probe_rtt_cwnd_gain * self.bdp as f64) as u64)
-                    .max(self.mtu * 4);
+                self.cwnd =
+                    ((self.config.probe_rtt_cwnd_gain * self.bdp as f64) as u64).max(self.mtu * 4);
                 if now.duration_since(self.min_rtt_stamp) >= Duration::from_millis(200) {
                     self.state = BbrState::ProbeBw;
                 }
             }
         }
-        self.pacing_rate_bps = self.max_bandwidth_bps.max((self.cwnd as f64 * 8.0) / elapsed);
+        self.pacing_rate_bps = self
+            .max_bandwidth_bps
+            .max((self.cwnd as f64 * 8.0) / elapsed);
     }
 }
 
@@ -239,7 +243,10 @@ pub struct NetworkProfile {
 pub struct CongestionOracle;
 
 impl CongestionOracle {
-    pub async fn probe(endpoint: &crate::transport::SctEndpoint, target: SocketAddr) -> NetworkProfile {
+    pub async fn probe(
+        endpoint: &crate::transport::SctEndpoint,
+        target: SocketAddr,
+    ) -> NetworkProfile {
         let mut samples = Vec::new();
         let mut bw_samples = Vec::new();
         let mut failures = 0_u32;

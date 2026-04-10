@@ -1,5 +1,7 @@
+use sct_core::protocol::{
+    read_framed, write_framed, ManifestAck, TransferComplete, TransferManifest,
+};
 use sct_core::receiver::{FileReceiver, ReceiverConfig};
-use sct_core::protocol::{read_framed, write_framed, ManifestAck, TransferComplete, TransferManifest};
 use sct_core::sender::{FileSender, SenderConfig};
 use sct_core::transport::{SctEndpoint, TransportConfig};
 use serial_test::serial;
@@ -13,7 +15,9 @@ async fn sender_receiver_transfer_smoke() {
     let send_tmp = tempfile::tempdir().expect("tempdir");
     let src_path = send_tmp.path().join("payload.bin");
     let payload = vec![0xAB_u8; 128 * 1024];
-    tokio::fs::write(&src_path, &payload).await.expect("write src");
+    tokio::fs::write(&src_path, &payload)
+        .await
+        .expect("write src");
 
     let server = SctEndpoint::server(TransportConfig {
         bind_addr: "127.0.0.1:0".parse().expect("addr"),
@@ -56,7 +60,9 @@ async fn sender_receiver_resume_from_bitmap_state() {
     let send_tmp = tempfile::tempdir().expect("tempdir");
     let src_path = send_tmp.path().join("resume.bin");
     let payload = vec![0xCD_u8; 256 * 1024];
-    tokio::fs::write(&src_path, &payload).await.expect("write src");
+    tokio::fs::write(&src_path, &payload)
+        .await
+        .expect("write src");
 
     let filename = "resume.bin";
     let hash = blake3::hash(filename.as_bytes());
@@ -67,15 +73,15 @@ async fn sender_receiver_resume_from_bitmap_state() {
         .map(|b| format!("{b:02x}"))
         .collect::<String>();
     let temp_path = recv_tmp.path().join(format!("{filename}.{hex}.part"));
-    let state_path = recv_tmp
-        .path()
-        .join(format!("{filename}.{hex}.state.json"));
+    let state_path = recv_tmp.path().join(format!("{filename}.{hex}.state.json"));
 
     // Prepare a partial state with chunk index 0 already received.
     let chunk_size = 64 * 1024;
     let mut pre = vec![0_u8; payload.len()];
     pre[..chunk_size].copy_from_slice(&payload[..chunk_size]);
-    tokio::fs::write(&temp_path, &pre).await.expect("write part");
+    tokio::fs::write(&temp_path, &pre)
+        .await
+        .expect("write part");
     tokio::fs::write(&state_path, br#"{"received_chunks":[0]}"#)
         .await
         .expect("write state");
@@ -127,16 +133,19 @@ async fn resume_ignores_corrupted_state_file() {
     let send_tmp = tempfile::tempdir().expect("tempdir");
     let src_path = send_tmp.path().join("corrupt-state.bin");
     let payload = vec![0xEF_u8; 96 * 1024];
-    tokio::fs::write(&src_path, &payload).await.expect("write src");
+    tokio::fs::write(&src_path, &payload)
+        .await
+        .expect("write src");
 
     let filename = "corrupt-state.bin";
     let hash = blake3::hash(filename.as_bytes());
     let mut transfer_id = [0_u8; 16];
     transfer_id.copy_from_slice(&hash.as_bytes()[..16]);
-    let hex = transfer_id.iter().map(|b| format!("{b:02x}")).collect::<String>();
-    let state_path = recv_tmp
-        .path()
-        .join(format!("{filename}.{hex}.state.json"));
+    let hex = transfer_id
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
+    let state_path = recv_tmp.path().join(format!("{filename}.{hex}.state.json"));
     tokio::fs::write(&state_path, b"{not-valid-json")
         .await
         .expect("write corrupted state");

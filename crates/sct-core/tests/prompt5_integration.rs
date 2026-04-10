@@ -6,7 +6,10 @@ use serial_test::serial;
 use std::net::SocketAddr;
 use std::time::Instant;
 
-async fn start_receiver(output: std::path::PathBuf, resume: bool) -> (SocketAddr, tokio::task::JoinHandle<std::path::PathBuf>) {
+async fn start_receiver(
+    output: std::path::PathBuf,
+    resume: bool,
+) -> (SocketAddr, tokio::task::JoinHandle<std::path::PathBuf>) {
     let server = SctEndpoint::server(TransportConfig {
         bind_addr: "127.0.0.1:0".parse().expect("addr"),
         ..Default::default()

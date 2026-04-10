@@ -225,7 +225,9 @@ impl QuicStreamTransport {
     #[cfg(feature = "quic-streams")]
     async fn connect_for_batch(&self) -> Result<quinn::Connection, TransportError> {
         use quinn::{ClientConfig, Endpoint, EndpointConfig, TransportConfig};
-        use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+        use rustls::client::danger::{
+            HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
+        };
         use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
         use rustls::{DigitallySignedStruct, SignatureScheme};
 
@@ -309,10 +311,9 @@ impl QuicStreamTransport {
     ) -> Result<BatchSendResult, TransportError> {
         #[cfg(feature = "quic-streams")]
         {
-            let conn = self
-                .connect_for_batch()
-                .await
-                .map_err(|_| TransportError::Unavailable("quic connection unavailable".to_string()))?;
+            let conn = self.connect_for_batch().await.map_err(|_| {
+                TransportError::Unavailable("quic connection unavailable".to_string())
+            })?;
             let sender = BatchSender::default();
             Ok(sender.send_batch(&conn, run_id, events).await)
         }

@@ -17,7 +17,10 @@ pub fn decode<T: DeserializeOwned>(buf: &[u8]) -> Result<T> {
     Ok(msg)
 }
 
-pub async fn write_framed<T: Serialize, W: AsyncWrite + Unpin>(writer: &mut W, msg: &T) -> Result<()> {
+pub async fn write_framed<T: Serialize, W: AsyncWrite + Unpin>(
+    writer: &mut W,
+    msg: &T,
+) -> Result<()> {
     let payload = encode(msg)?;
     writer.write_u32(payload.len() as u32).await?;
     writer.write_all(&payload).await?;

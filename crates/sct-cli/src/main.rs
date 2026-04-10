@@ -2,9 +2,9 @@ use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use indicatif::{ProgressBar, ProgressStyle};
 use sct_core::congestion::{CongestionOracle, LinkType};
+use sct_core::protocol::CompressionType;
 use sct_core::receiver::{FileReceiver, ReceiverConfig};
 use sct_core::sender::{FileSender, SenderConfig};
-use sct_core::protocol::CompressionType;
 use sct_core::transport::{SctEndpoint, TransportConfig};
 use serde_json::json;
 use std::fs;
@@ -195,7 +195,8 @@ async fn main() -> Result<()> {
             let avg = if throughput_estimates_mbps.is_empty() {
                 0.0
             } else {
-                throughput_estimates_mbps.iter().sum::<f64>() / throughput_estimates_mbps.len() as f64
+                throughput_estimates_mbps.iter().sum::<f64>()
+                    / throughput_estimates_mbps.len() as f64
             };
             println!(
                 "bench summary: target={}, samples={}, est_throughput_mbps={:.2}",

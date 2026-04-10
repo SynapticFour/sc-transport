@@ -4,11 +4,11 @@ use sc_transport_core::{EventType, TelemetryEvent, Transport};
 use sc_transport_datagrams::QuicDatagramTransport;
 use sc_transport_quic::QuicStreamTransport;
 use sc_transport_sse::HttpSseTransport;
-use tokio::runtime::Runtime;
-use tokio::time::{timeout, Duration};
 use std::fs;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::runtime::Runtime;
+use tokio::time::{timeout, Duration};
 
 fn scripted_event(run_id: &str, i: u64) -> TelemetryEvent {
     TelemetryEvent {

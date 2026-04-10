@@ -14,9 +14,9 @@ use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use tokio::sync::Mutex;
 #[cfg(feature = "quic-datagrams")]
 use tokio::sync::OnceCell;
-use tokio::sync::Mutex;
 
 #[derive(Debug, Clone)]
 pub struct QuicDatagramConfig {
@@ -377,9 +377,22 @@ impl Transport for QuicDatagramTransport {
         let delivered = {
             #[cfg(feature = "quic-datagrams")]
             {
-            let conn = match self.ensure_connection().await {
-                Ok(c) => c,
-                Err(_) => {
+                let conn = match self.ensure_connection().await {
+                    Ok(c) => c,
+                    Err(_) => {
+                        self.record_loss_sample(false).await;
+                        self.dropped.fetch_add(1, Ordering::Relaxed);
+                        let _ = self.fallback.send_event(run_id, event).await;
+                        if self.should_trigger_fallback_by_loss().await {
+                            self.fallback_count.fetch_add(1, Ordering::Relaxed);
+                            return Ok(DeliveryStatus::FellBack {
+                                reason: "loss_threshold_exceeded".to_string(),
+                            });
+                        }
+                        return Ok(DeliveryStatus::Dropped);
+                    }
+                };
+                if conn.send_datagram(Bytes::from(bytes)).is_err() {
                     self.record_loss_sample(false).await;
                     self.dropped.fetch_add(1, Ordering::Relaxed);
                     let _ = self.fallback.send_event(run_id, event).await;
@@ -391,19 +404,6 @@ impl Transport for QuicDatagramTransport {
                     }
                     return Ok(DeliveryStatus::Dropped);
                 }
-            };
-            if conn.send_datagram(Bytes::from(bytes)).is_err() {
-                self.record_loss_sample(false).await;
-                self.dropped.fetch_add(1, Ordering::Relaxed);
-                let _ = self.fallback.send_event(run_id, event).await;
-                if self.should_trigger_fallback_by_loss().await {
-                    self.fallback_count.fetch_add(1, Ordering::Relaxed);
-                    return Ok(DeliveryStatus::FellBack {
-                        reason: "loss_threshold_exceeded".to_string(),
-                    });
-                }
-                return Ok(DeliveryStatus::Dropped);
-            }
                 true
             }
             #[cfg(not(feature = "quic-datagrams"))]
@@ -655,8 +655,7 @@ mod tests {
         use quinn::ServerConfig;
         use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
         use std::sync::Arc;
-        let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
-            .expect("cert");
+        let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).expect("cert");
         let cert_der: CertificateDer<'static> = CertificateDer::from(cert.cert.der().to_vec());
         let key_der = PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der());
         let server_config =
