@@ -4,6 +4,7 @@ members = [
     "crates/sc-transport-sse",
     "crates/sc-transport-quic",
     "crates/sc-transport-datagrams",
+    "crates/sc-transport-probe",
     "crates/sct-core",
     "crates/sct-cli",
     "crates/sct-proto",
@@ -24,6 +25,7 @@ default = ["transport-sse"]
 transport-sse = ["dep:sc-transport-sse"]
 transport-quic = ["dep:sc-transport-quic", "sc-transport-quic/quic-streams"]
 transport-datagrams = ["dep:sc-transport-datagrams", "sc-transport-datagrams/quic-datagrams"]
+probe = ["dep:sc-transport-probe"]
 
 [workspace.package]
 edition = "2021"
@@ -47,6 +49,7 @@ sc-transport-core = { path = "crates/sc-transport-core" }
 sc-transport-sse = { path = "crates/sc-transport-sse", optional = true }
 sc-transport-quic = { path = "crates/sc-transport-quic", optional = true }
 sc-transport-datagrams = { path = "crates/sc-transport-datagrams", optional = true }
+sc-transport-probe = { path = "crates/sc-transport-probe", optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
@@ -96,6 +99,11 @@ required-features = ["transport-datagrams"]
 [[test]]
 name = "transport_transparency"
 path = "tests/integration/transport_transparency.rs"
+required-features = ["transport-quic", "transport-datagrams"]
+
+[[test]]
+name = "wan_simulation"
+path = "tests/integration/wan_simulation.rs"
 required-features = ["transport-quic", "transport-datagrams"]
 
 [[bench]]

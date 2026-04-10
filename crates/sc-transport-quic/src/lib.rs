@@ -1,3 +1,8 @@
+pub mod batch;
+#[cfg(feature = "quic-streams")]
+pub mod congestion;
+pub use batch::{BatchSendResult, BatchSender};
+
 use async_trait::async_trait;
 use sc_transport_core::{
     DeliveryStatus, EventStream, TelemetryEvent, Transport, TransportError, TransportMetrics,
@@ -6,6 +11,8 @@ use sc_transport_sse::HttpSseTransport;
 #[cfg(feature = "quic-streams")]
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(feature = "quic-streams")]
+use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 pub const LENGTH_PREFIX_BYTES: usize = 4;
@@ -17,6 +24,10 @@ pub const LENGTH_PREFIX_BYTES: usize = 4;
 pub struct QuicStreamTransport {
     fallback: HttpSseTransport,
     fallback_count: AtomicU64,
+    #[cfg(feature = "quic-streams")]
+    server_addr: SocketAddr,
+    #[cfg(feature = "quic-streams")]
+    use_scientific_cc: bool,
 }
 
 impl Default for QuicStreamTransport {
@@ -30,6 +41,30 @@ impl QuicStreamTransport {
         Self {
             fallback: HttpSseTransport::new(),
             fallback_count: AtomicU64::new(0),
+            #[cfg(feature = "quic-streams")]
+            server_addr: SocketAddr::from((Ipv4Addr::LOCALHOST, 7272)),
+            #[cfg(feature = "quic-streams")]
+            use_scientific_cc: false,
+        }
+    }
+
+    #[cfg(feature = "quic-streams")]
+    pub fn with_server_addr(server_addr: SocketAddr) -> Self {
+        let mut s = Self::new();
+        s.server_addr = server_addr;
+        s
+    }
+
+    pub fn with_scientific_cc() -> Self {
+        #[cfg(feature = "quic-streams")]
+        {
+            let mut s = Self::new();
+            s.use_scientific_cc = true;
+            s
+        }
+        #[cfg(not(feature = "quic-streams"))]
+        {
+            Self::new()
         }
     }
 
@@ -112,6 +147,7 @@ impl QuicStreamTransport {
         use quinn::{ClientConfig, Endpoint, ServerConfig};
         use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
         use std::sync::Arc;
+        let _ = rustls::crypto::ring::default_provider().install_default();
 
         let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
             .map_err(|e| TransportError::QuicError(e.to_string()))?;
@@ -184,6 +220,109 @@ impl QuicStreamTransport {
             .await
             .map_err(|e| TransportError::QuicError(e.to_string()))??;
         Ok(echoed)
+    }
+
+    #[cfg(feature = "quic-streams")]
+    async fn connect_for_batch(&self) -> Result<quinn::Connection, TransportError> {
+        use quinn::{ClientConfig, Endpoint, EndpointConfig, TransportConfig};
+        use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+        use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+        use rustls::{DigitallySignedStruct, SignatureScheme};
+
+        #[derive(Debug)]
+        struct InsecureVerifier;
+        impl ServerCertVerifier for InsecureVerifier {
+            fn verify_server_cert(
+                &self,
+                _end_entity: &CertificateDer<'_>,
+                _intermediates: &[CertificateDer<'_>],
+                _server_name: &ServerName<'_>,
+                _ocsp_response: &[u8],
+                _now: UnixTime,
+            ) -> Result<ServerCertVerified, rustls::Error> {
+                Ok(ServerCertVerified::assertion())
+            }
+            fn verify_tls12_signature(
+                &self,
+                _message: &[u8],
+                _cert: &CertificateDer<'_>,
+                _dss: &DigitallySignedStruct,
+            ) -> Result<HandshakeSignatureValid, rustls::Error> {
+                Ok(HandshakeSignatureValid::assertion())
+            }
+            fn verify_tls13_signature(
+                &self,
+                _message: &[u8],
+                _cert: &CertificateDer<'_>,
+                _dss: &DigitallySignedStruct,
+            ) -> Result<HandshakeSignatureValid, rustls::Error> {
+                Ok(HandshakeSignatureValid::assertion())
+            }
+            fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+                vec![
+                    SignatureScheme::ECDSA_NISTP256_SHA256,
+                    SignatureScheme::RSA_PKCS1_SHA256,
+                    SignatureScheme::RSA_PSS_SHA256,
+                    SignatureScheme::ED25519,
+                ]
+            }
+        }
+
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let mut rustls_cfg = rustls::ClientConfig::builder()
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(InsecureVerifier))
+            .with_no_client_auth();
+        rustls_cfg.enable_early_data = true;
+        let client_config = ClientConfig::new(Arc::new(
+            quinn::crypto::rustls::QuicClientConfig::try_from(rustls_cfg)
+                .map_err(|e| TransportError::QuicError(e.to_string()))?,
+        ));
+        let mut client_config = client_config;
+        if self.use_scientific_cc {
+            let mut tcfg = TransportConfig::default();
+            tcfg.congestion_controller_factory(Arc::new(congestion::SciBbrConfig::default()));
+            client_config.transport_config(Arc::new(tcfg));
+        }
+        let socket = std::net::UdpSocket::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
+            .map_err(|e| TransportError::Unavailable(e.to_string()))?;
+        let runtime = Arc::new(quinn::TokioRuntime);
+        let mut endpoint = Endpoint::new(EndpointConfig::default(), None, socket, runtime)
+            .map_err(|e| TransportError::QuicError(e.to_string()))?;
+        endpoint.set_default_client_config(client_config);
+        let server_name = if self.server_addr.ip().is_loopback() {
+            "localhost".to_string()
+        } else {
+            self.server_addr.ip().to_string()
+        };
+        endpoint
+            .connect(self.server_addr, &server_name)
+            .map_err(|e| TransportError::QuicError(e.to_string()))?
+            .await
+            .map_err(|e| TransportError::QuicError(e.to_string()))
+    }
+
+    pub async fn send_events_batch(
+        &self,
+        run_id: &str,
+        events: Vec<TelemetryEvent>,
+    ) -> Result<BatchSendResult, TransportError> {
+        #[cfg(feature = "quic-streams")]
+        {
+            let conn = self
+                .connect_for_batch()
+                .await
+                .map_err(|_| TransportError::Unavailable("quic connection unavailable".to_string()))?;
+            let sender = BatchSender::default();
+            Ok(sender.send_batch(&conn, run_id, events).await)
+        }
+        #[cfg(not(feature = "quic-streams"))]
+        {
+            let _ = (run_id, events);
+            Err(TransportError::Unavailable(
+                "quic-streams not enabled".to_string(),
+            ))
+        }
     }
 }
 

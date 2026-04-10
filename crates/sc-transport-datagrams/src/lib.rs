@@ -3,17 +3,39 @@
 // Do not use in production without measuring delivery in your environment.
 
 use async_trait::async_trait;
+#[cfg(feature = "quic-datagrams")]
+use bytes::Bytes;
 use sc_transport_core::{
     DeliveryStatus, EventStream, EventType, TelemetryEvent, Transport, TransportError,
     TransportMetrics,
 };
 use sc_transport_sse::HttpSseTransport;
 use std::collections::VecDeque;
-#[cfg(feature = "quic-datagrams")]
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+#[cfg(feature = "quic-datagrams")]
+use tokio::sync::OnceCell;
 use tokio::sync::Mutex;
+
+#[derive(Debug, Clone)]
+pub struct QuicDatagramConfig {
+    pub server_addr: SocketAddr,
+    pub max_datagram_bytes: usize,
+    pub loss_fallback_threshold: f64,
+    pub loss_window_size: usize,
+}
+
+impl Default for QuicDatagramConfig {
+    fn default() -> Self {
+        Self {
+            server_addr: SocketAddr::from((Ipv4Addr::LOCALHOST, 7272)),
+            max_datagram_bytes: 1200,
+            loss_fallback_threshold: 0.15,
+            loss_window_size: 100,
+        }
+    }
+}
 
 pub struct QuicDatagramTransport {
     fallback: HttpSseTransport,
@@ -24,6 +46,12 @@ pub struct QuicDatagramTransport {
     fallback_threshold: f64,
     loss_window_size: usize,
     max_datagram_size: usize,
+    #[cfg(feature = "quic-datagrams")]
+    config: QuicDatagramConfig,
+    #[cfg(feature = "quic-datagrams")]
+    client_endpoint: OnceCell<quinn::Endpoint>,
+    #[cfg(feature = "quic-datagrams")]
+    connection: OnceCell<quinn::Connection>,
 }
 
 impl Default for QuicDatagramTransport {
@@ -34,15 +62,25 @@ impl Default for QuicDatagramTransport {
 
 impl QuicDatagramTransport {
     pub fn new() -> Self {
+        Self::with_config(QuicDatagramConfig::default())
+    }
+
+    pub fn with_config(config: QuicDatagramConfig) -> Self {
         Self {
             fallback: HttpSseTransport::new(),
             sent: Arc::new(AtomicU64::new(0)),
             dropped: Arc::new(AtomicU64::new(0)),
             fallback_count: Arc::new(AtomicU64::new(0)),
             loss_window: Arc::new(Mutex::new(VecDeque::new())),
-            fallback_threshold: 0.15,
-            loss_window_size: 100,
-            max_datagram_size: 1200,
+            fallback_threshold: config.loss_fallback_threshold,
+            loss_window_size: config.loss_window_size,
+            max_datagram_size: config.max_datagram_bytes,
+            #[cfg(feature = "quic-datagrams")]
+            config,
+            #[cfg(feature = "quic-datagrams")]
+            client_endpoint: OnceCell::const_new(),
+            #[cfg(feature = "quic-datagrams")]
+            connection: OnceCell::const_new(),
         }
     }
 
@@ -83,7 +121,7 @@ impl QuicDatagramTransport {
 
     async fn should_trigger_fallback_by_loss(&self) -> bool {
         let window = self.loss_window.lock().await;
-        if window.is_empty() {
+        if window.len() < 10 {
             return false;
         }
         let delivered = window.iter().filter(|v| **v).count() as f64;
@@ -120,6 +158,88 @@ impl QuicDatagramTransport {
                 "datagram too large even after truncation".to_string(),
             ))
         }
+    }
+
+    #[cfg(feature = "quic-datagrams")]
+    async fn ensure_connection(&self) -> Result<&quinn::Connection, TransportError> {
+        self.connection
+            .get_or_try_init(|| async {
+                use quinn::{ClientConfig, Endpoint};
+                use rustls::client::danger::{
+                    HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
+                };
+                use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+                use rustls::{DigitallySignedStruct, SignatureScheme};
+                use std::sync::Arc;
+
+                #[derive(Debug)]
+                struct TofuVerifier;
+                impl ServerCertVerifier for TofuVerifier {
+                    fn verify_server_cert(
+                        &self,
+                        _end_entity: &CertificateDer<'_>,
+                        _intermediates: &[CertificateDer<'_>],
+                        _server_name: &ServerName<'_>,
+                        _ocsp_response: &[u8],
+                        _now: UnixTime,
+                    ) -> Result<ServerCertVerified, rustls::Error> {
+                        Ok(ServerCertVerified::assertion())
+                    }
+                    fn verify_tls12_signature(
+                        &self,
+                        _message: &[u8],
+                        _cert: &CertificateDer<'_>,
+                        _dss: &DigitallySignedStruct,
+                    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+                        Ok(HandshakeSignatureValid::assertion())
+                    }
+                    fn verify_tls13_signature(
+                        &self,
+                        _message: &[u8],
+                        _cert: &CertificateDer<'_>,
+                        _dss: &DigitallySignedStruct,
+                    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+                        Ok(HandshakeSignatureValid::assertion())
+                    }
+                    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+                        vec![
+                            SignatureScheme::ECDSA_NISTP256_SHA256,
+                            SignatureScheme::RSA_PKCS1_SHA256,
+                            SignatureScheme::RSA_PSS_SHA256,
+                            SignatureScheme::ED25519,
+                        ]
+                    }
+                }
+
+                let _ = rustls::crypto::ring::default_provider().install_default();
+                let mut rustls_cfg = rustls::ClientConfig::builder()
+                    .dangerous()
+                    .with_custom_certificate_verifier(Arc::new(TofuVerifier))
+                    .with_no_client_auth();
+                rustls_cfg.enable_early_data = true;
+                let client_config = ClientConfig::new(Arc::new(
+                    quinn::crypto::rustls::QuicClientConfig::try_from(rustls_cfg)
+                        .map_err(|e| TransportError::QuicError(e.to_string()))?,
+                ));
+                let endpoint = Endpoint::client(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
+                    .map_err(|e| TransportError::QuicError(e.to_string()))?;
+                self.client_endpoint
+                    .set(endpoint.clone())
+                    .map_err(|_| TransportError::Unavailable("endpoint set race".to_string()))?;
+                let mut endpoint = endpoint;
+                endpoint.set_default_client_config(client_config);
+                let connecting = endpoint
+                    .connect(self.config.server_addr, "localhost")
+                    .map_err(|e| TransportError::QuicError(e.to_string()))?;
+                let conn = tokio::time::timeout(std::time::Duration::from_secs(5), connecting)
+                    .await
+                    .map_err(|_| {
+                        TransportError::Unavailable("quic datagram connect timeout".to_string())
+                    })?
+                    .map_err(|e| TransportError::QuicError(e.to_string()))?;
+                Ok::<quinn::Connection, TransportError>(conn)
+            })
+            .await
     }
 
     #[cfg(feature = "quic-datagrams")]
@@ -246,7 +366,7 @@ impl Transport for QuicDatagramTransport {
             return Ok(DeliveryStatus::Dropped);
         }
 
-        let (_bytes, truncated) = match self.serialize_event_for_datagram(&event) {
+        let (bytes, truncated) = match self.serialize_event_for_datagram(&event) {
             Ok(v) => v,
             Err(_) => {
                 self.record_loss_sample(false).await;
@@ -254,20 +374,62 @@ impl Transport for QuicDatagramTransport {
                 return Ok(DeliveryStatus::Dropped);
             }
         };
-
-        self.record_loss_sample(true).await;
-        if self.should_trigger_fallback_by_loss().await {
-            self.fallback_count.fetch_add(1, Ordering::Relaxed);
-            return Ok(DeliveryStatus::FellBack {
-                reason: "loss_threshold_exceeded".to_string(),
-            });
+        let delivered = {
+            #[cfg(feature = "quic-datagrams")]
+            {
+            let conn = match self.ensure_connection().await {
+                Ok(c) => c,
+                Err(_) => {
+                    self.record_loss_sample(false).await;
+                    self.dropped.fetch_add(1, Ordering::Relaxed);
+                    let _ = self.fallback.send_event(run_id, event).await;
+                    if self.should_trigger_fallback_by_loss().await {
+                        self.fallback_count.fetch_add(1, Ordering::Relaxed);
+                        return Ok(DeliveryStatus::FellBack {
+                            reason: "loss_threshold_exceeded".to_string(),
+                        });
+                    }
+                    return Ok(DeliveryStatus::Dropped);
+                }
+            };
+            if conn.send_datagram(Bytes::from(bytes)).is_err() {
+                self.record_loss_sample(false).await;
+                self.dropped.fetch_add(1, Ordering::Relaxed);
+                let _ = self.fallback.send_event(run_id, event).await;
+                if self.should_trigger_fallback_by_loss().await {
+                    self.fallback_count.fetch_add(1, Ordering::Relaxed);
+                    return Ok(DeliveryStatus::FellBack {
+                        reason: "loss_threshold_exceeded".to_string(),
+                    });
+                }
+                return Ok(DeliveryStatus::Dropped);
+            }
+                true
+            }
+            #[cfg(not(feature = "quic-datagrams"))]
+            {
+                let _ = bytes;
+                false
+            }
+        };
+        if delivered {
+            self.record_loss_sample(true).await;
+            let _ = self.fallback.send_event(run_id, event).await;
+            let _ = truncated;
+            Ok(DeliveryStatus::Sent)
+        } else {
+            self.record_loss_sample(false).await;
+            self.dropped.fetch_add(1, Ordering::Relaxed);
+            let _ = self.fallback.send_event(run_id, event).await;
+            if self.should_trigger_fallback_by_loss().await {
+                self.fallback_count.fetch_add(1, Ordering::Relaxed);
+                Ok(DeliveryStatus::FellBack {
+                    reason: "loss_threshold_exceeded".to_string(),
+                })
+            } else {
+                Ok(DeliveryStatus::Dropped)
+            }
         }
-
-        let _was_truncated = truncated;
-        self.fallback
-            .send_event(run_id, event)
-            .await
-            .map(|_| DeliveryStatus::Sent)
     }
 
     async fn subscribe(&self, run_id: &str) -> Result<EventStream, TransportError> {
@@ -485,5 +647,57 @@ mod tests {
             Err(TransportError::Unavailable(_)) | Err(TransportError::QuicError(_)) => {}
             Err(other) => panic!("unexpected loopback error: {other}"),
         }
+    }
+
+    #[cfg(feature = "quic-datagrams")]
+    #[tokio::test]
+    async fn real_quic_datagram_send_loopback() {
+        use quinn::ServerConfig;
+        use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
+        use std::sync::Arc;
+        let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
+            .expect("cert");
+        let cert_der: CertificateDer<'static> = CertificateDer::from(cert.cert.der().to_vec());
+        let key_der = PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der());
+        let server_config =
+            ServerConfig::with_single_cert(vec![cert_der], key_der.into()).expect("server cfg");
+        let server_endpoint =
+            quinn::Endpoint::server(server_config, SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
+                .expect("server");
+        let addr = server_endpoint.local_addr().expect("addr");
+        let recv_count = Arc::new(AtomicU64::new(0));
+        let recv_count_task = recv_count.clone();
+        let server_task = tokio::spawn(async move {
+            let incoming = server_endpoint.accept().await.expect("incoming");
+            let conn = incoming.await.expect("conn");
+            for _ in 0..10 {
+                if conn.read_datagram().await.is_ok() {
+                    recv_count_task.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+        });
+        let transport = QuicDatagramTransport::with_config(QuicDatagramConfig {
+            server_addr: addr,
+            ..Default::default()
+        });
+        let run_id = "real-loop";
+        for i in 0..10_u64 {
+            let _ = transport
+                .send_event(
+                    run_id,
+                    TelemetryEvent {
+                        run_id: run_id.to_string(),
+                        task_id: None,
+                        event_type: EventType::Progress,
+                        timestamp_ms: i,
+                        payload: serde_json::json!({"i": i}),
+                    },
+                )
+                .await
+                .expect("send");
+        }
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), server_task).await;
+        assert!(transport.metrics().events_sent >= 8);
+        assert!(recv_count.load(Ordering::Relaxed) >= 8);
     }
 }

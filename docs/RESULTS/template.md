@@ -1,28 +1,11 @@
-# Measurement Record: YYYY-MM-DD-short-name
+# Measurement Record
 
-## Environment
+## WAN Simulation Results
 
-- Host OS:
-- Kernel/Version:
-- CPU:
-- Network setup:
-- Rust version:
+| Scenario | Transport | Events/sec | Loss Rate | Fallback Count | RTT | Notes |
+|----------|-----------|------------|-----------|----------------|-----|-------|
+| continental | quic-stream | — | — | — | 50ms | |
+| intercontinental | datagram | — | — | — | 100ms | |
+| degraded | datagram | — | — | — | 150ms | |
 
-## Scenario
-
-- Transport:
-- Event count:
-- Subscriber count:
-- Injected latency/loss:
-
-## Results
-
-- Throughput:
-- Latency p50/p95/p99:
-- Delivery ratio:
-- Fallback triggered:
-
-## Notes
-
-- Observations:
-- Limitations:
+Fill in values after running: `./scripts/netem_runner.sh run_wan_scenarios`

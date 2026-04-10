@@ -1612,6 +1612,7 @@ dependencies = [
  "futures",
  "sc-transport-core",
  "sc-transport-datagrams",
+ "sc-transport-probe",
  "sc-transport-quic",
  "sc-transport-sse",
  "serde_json",
@@ -1634,6 +1635,7 @@ name = "sc-transport-datagrams"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "bytes",
  "futures",
  "quinn",
  "rcgen",
@@ -1648,12 +1650,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "sc-transport-probe"
+version = "0.1.0"
+dependencies = [
+ "quinn",
+ "rcgen",
+ "rustls",
+ "sc-transport-core",
+ "sc-transport-quic",
+ "tokio",
+]
+
+[[package]]
 name = "sc-transport-quic"
 version = "0.1.0"
 dependencies = [
  "async-trait",
  "futures",
  "quinn",
+ "quinn-proto",
  "rcgen",
  "rmp-serde",
  "rustls",

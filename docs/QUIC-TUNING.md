@@ -22,3 +22,10 @@
 - Capture sent, delivered, dropped, and fallback counters.
 - Record transport mode transitions with timestamps.
 - Correlate packet-loss conditions with fallback threshold behavior.
+
+## Pre-transfer path probing
+
+Before initiating a large batch transfer, run `NetworkProbe::measure()` to
+classify the link. Feed `NetworkProfile::suggested_config` into `BatchSender`
+and `ScientificCongestionController` to pre-configure for your actual path
+instead of relying on slow-start discovery.

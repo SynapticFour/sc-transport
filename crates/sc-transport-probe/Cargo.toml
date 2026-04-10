@@ -1,0 +1,14 @@
+[package]
+name = "sc-transport-probe"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "QUIC path probe and network profiling for sc-transport."
+
+[dependencies]
+sc-transport-core = { path = "../sc-transport-core" }
+sc-transport-quic = { path = "../sc-transport-quic", features = ["quic-streams"] }
+tokio = { workspace = true }
+quinn = "0.11"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rcgen = "0.13"
