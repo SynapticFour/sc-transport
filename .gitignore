@@ -5,3 +5,13 @@
 *.jsonl
 /.sct-daemon/
 crates/sct-daemon/.sct-daemon/
+
+# Generated artifacts and caches
+.svelte-kit/
+.astro/
+coverage/
+dist/
+build/
+target/
+.pytest_cache/
+.ruff_cache/

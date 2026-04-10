@@ -1,0 +1,62 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+  - package-ecosystem: "cargo"
+    directory: "/crates/sct-cli"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+  - package-ecosystem: "cargo"
+    directory: "/crates/sc-transport-quic"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+  - package-ecosystem: "cargo"
+    directory: "/crates/sc-transport-sse"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+  - package-ecosystem: "cargo"
+    directory: "/crates/sc-transport-probe"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+  - package-ecosystem: "cargo"
+    directory: "/crates/sc-transport-datagrams"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+  - package-ecosystem: "cargo"
+    directory: "/crates/sct-core"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+  - package-ecosystem: "cargo"
+    directory: "/crates/sc-transport-core"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+  - package-ecosystem: "cargo"
+    directory: "/crates/sct-proto"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+  - package-ecosystem: "cargo"
+    directory: "/crates/sct-bench"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+  - package-ecosystem: "cargo"
+    directory: "/crates/sct-daemon"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
