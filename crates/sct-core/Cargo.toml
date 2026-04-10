@@ -23,7 +23,7 @@ bincode = { version = "2", features = ["serde"] }
 prometheus = "0.14"
 socket2 = "0.5"
 dirs = "5"
-rcgen = "0.13"
+rcgen = "0.14"
 sct-proto = { path = "../sct-proto" }
 
 [dev-dependencies]
