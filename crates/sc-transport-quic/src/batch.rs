@@ -1,8 +1,14 @@
-use crate::QuicStreamTransport;
 use sc_transport_core::TelemetryEvent;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(feature = "quic-streams")]
+use std::time::Instant;
+#[cfg(feature = "quic-streams")]
 use tokio::sync::Semaphore;
+#[cfg(feature = "quic-streams")]
 use tokio::task::JoinSet;
+
+#[cfg(feature = "quic-streams")]
+use crate::QuicStreamTransport;
 
 pub struct BatchSender {
     pub max_parallel_streams: usize,
@@ -27,6 +33,7 @@ pub struct BatchSendResult {
 }
 
 impl BatchSender {
+    #[cfg(feature = "quic-streams")]
     pub async fn send_batch(
         &self,
         connection: &quinn::Connection,
@@ -87,6 +94,22 @@ impl BatchSender {
             failed_chunks,
             elapsed,
             effective_throughput_events_per_sec: eps,
+        }
+    }
+
+    #[cfg(not(feature = "quic-streams"))]
+    pub async fn send_batch(
+        &self,
+        _connection: &(),
+        _run_id: &str,
+        events: Vec<TelemetryEvent>,
+    ) -> BatchSendResult {
+        BatchSendResult {
+            total_events: events.len(),
+            sent_events: 0,
+            failed_chunks: events.chunks(self.chunk_size.max(1)).count(),
+            elapsed: Duration::from_secs(0),
+            effective_throughput_events_per_sec: 0.0,
         }
     }
 }
