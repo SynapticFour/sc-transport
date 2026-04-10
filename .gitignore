@@ -3,3 +3,5 @@
 *.gcda
 *.gcno
 *.jsonl
+/.sct-daemon/
+crates/sct-daemon/.sct-daemon/
