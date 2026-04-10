@@ -183,4 +183,38 @@ mod tests {
         assert!(res.sent_events >= 480);
         assert!(res.effective_throughput_events_per_sec > 100.0);
     }
+
+    #[cfg(feature = "quic-streams")]
+    #[tokio::test]
+    async fn batch_fails_gracefully_when_stream_limit_exceeded() {
+        use quinn::{Endpoint, ServerConfig};
+        use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
+
+        let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
+            .expect("cert");
+        let cert_der: CertificateDer<'static> = CertificateDer::from(cert.cert.der().to_vec());
+        let key_der = PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der());
+        let mut server_config =
+            ServerConfig::with_single_cert(vec![cert_der], key_der.into()).expect("server cfg");
+        if let Some(transport) = std::sync::Arc::get_mut(&mut server_config.transport) {
+            transport.max_concurrent_uni_streams(0_u32.into());
+        }
+        let server = Endpoint::server(
+            server_config,
+            std::net::SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, 0)),
+        )
+        .expect("server");
+        let addr = server.local_addr().expect("addr");
+        let _server_task = tokio::spawn(async move {
+            if let Some(incoming) = server.accept().await {
+                let _ = incoming.await;
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        });
+
+        let t = QuicStreamTransport::with_server_addr(addr);
+        let events = (0..64).map(|i| mk("limit", i)).collect::<Vec<_>>();
+        let res = t.send_events_batch("limit", events).await.expect("batch");
+        assert!(res.failed_chunks > 0);
+    }
 }

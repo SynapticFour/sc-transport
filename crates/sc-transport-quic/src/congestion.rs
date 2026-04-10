@@ -244,4 +244,32 @@ mod tests {
         c.on_congestion_event(Instant::now(), Instant::now(), false, 1000);
         assert!(c.cwnd >= (before as f64 * 0.9) as u64);
     }
+
+    #[test]
+    fn startup_to_drain_to_probebw_transition() {
+        let cfg = Arc::new(SciBbrConfig::default());
+        let mut c = ScientificCongestionController::new(cfg, Instant::now(), 1452);
+        let now = Instant::now();
+        // Force startup completion condition.
+        c.max_bandwidth_bps = 1000.0;
+        c.startup_no_growth_rounds = 3;
+        c.transition_state(now, 1000.0);
+        assert!(matches!(c.state, BbrState::Drain));
+        c.cwnd = c.bdp();
+        c.transition_state(now + Duration::from_millis(10), c.max_bandwidth_bps);
+        assert!(matches!(c.state, BbrState::ProbeBw { .. }));
+    }
+
+    #[test]
+    fn pacing_rate_is_non_zero_after_ack_modeling() {
+        let cfg = Arc::new(SciBbrConfig::default());
+        let mut c = ScientificCongestionController::new(cfg, Instant::now(), 1452);
+        let now = Instant::now();
+        c.update_rtt_model(Duration::from_millis(100), now);
+        c.update_bandwidth_model(1452 * 100, Duration::from_millis(100), now);
+        c.transition_state(now, 0.0);
+        c.cwnd = c.bdp();
+        c.pacing_rate_bps = (c.cwnd as f64 / c.min_rtt.as_secs_f64().max(0.000_001)) * 8.0;
+        assert!(c.metrics().pacing_rate.unwrap_or_default() > 0);
+    }
 }

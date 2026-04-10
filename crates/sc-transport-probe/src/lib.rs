@@ -335,14 +335,48 @@ mod tests {
 
     #[tokio::test]
     async fn probe_handles_timeout_gracefully() {
+        use quinn::ServerConfig;
+        use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
+
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
+            .expect("cert");
+        let cert_der: CertificateDer<'static> = CertificateDer::from(cert.cert.der().to_vec());
+        let key_der = PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der());
+        let server_config =
+            ServerConfig::with_single_cert(vec![cert_der], key_der.into()).expect("cfg");
+        let endpoint = quinn::Endpoint::server(
+            server_config,
+            SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+        )
+        .expect("server");
+        let addr = endpoint.local_addr().expect("addr");
+        let _task = tokio::spawn(async move {
+            while let Some(incoming) = endpoint.accept().await {
+                let conn = incoming.await;
+                if let Ok(conn) = conn {
+                    tokio::spawn(async move {
+                        let mut i = 0_u64;
+                        while let Ok(d) = conn.read_datagram().await {
+                            i += 1;
+                            // Drop ~50% of probe packets.
+                            if i % 2 == 0 {
+                                let _ = conn.send_datagram(d);
+                            }
+                        }
+                    });
+                }
+            }
+        });
+
         let p = NetworkProbe {
-            probe_packet_count: 10,
-            probe_duration_secs: 0.2,
-            timeout_per_packet: Duration::from_millis(10),
+            probe_packet_count: 20,
+            probe_duration_secs: 0.5,
+            timeout_per_packet: Duration::from_millis(50),
         };
-        let res = p
-            .measure(SocketAddr::from((Ipv4Addr::LOCALHOST, 9)))
-            .await;
-        assert!(res.is_err() || res.as_ref().map(|x| x.estimated_loss_rate > 0.3).unwrap_or(true));
+        let res = p.measure(addr).await;
+        assert!(res.is_ok(), "probe should handle packet drops gracefully");
+        let profile = res.expect("profile");
+        assert!(profile.estimated_loss_rate > 0.3);
     }
 }
