@@ -1,0 +1,13 @@
+[package]
+name = "sct-bench"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Bench and diagnostics tools for SPARQ transport."
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+sct-core = { path = "../sct-core" }
+blake3 = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

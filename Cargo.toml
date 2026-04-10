@@ -4,6 +4,11 @@ members = [
     "crates/sc-transport-sse",
     "crates/sc-transport-quic",
     "crates/sc-transport-datagrams",
+    "crates/sct-core",
+    "crates/sct-cli",
+    "crates/sct-proto",
+    "crates/sct-bench",
+    "crates/sct-daemon",
 ]
 resolver = "2"
 

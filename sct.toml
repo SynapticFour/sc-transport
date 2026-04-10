@@ -1,0 +1,23 @@
+[server]
+listen_port = 7272
+api_port = 7273
+max_concurrent_transfers = 4
+output_base_dir = "/data/incoming"
+
+[transfer]
+default_chunk_size_mb = 4
+default_parallel_streams = 16
+default_compression = "auto"
+enable_resumption = true
+
+[auth]
+mode = "tofu"
+known_hosts_file = "~/.sct/known_hosts"
+
+[metrics]
+enabled = true
+prometheus_port = 9090
+
+[logging]
+level = "info"
+format = "json"

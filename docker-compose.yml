@@ -1,0 +1,12 @@
+services:
+  sct-daemon:
+    image: sct-daemon:latest
+    ports:
+      - "7272:7272"
+      - "7273:7273"
+      - "9090:9090"
+    volumes:
+      - /data:/data
+      - ./sct.toml:/etc/sct/sct.toml
+    environment:
+      - RUST_LOG=info

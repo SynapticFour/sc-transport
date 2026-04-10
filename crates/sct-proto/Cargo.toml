@@ -1,0 +1,10 @@
+[package]
+name = "sct-proto"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "SPARQ protocol message definitions for sc-transport."
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+bincode = { version = "2", features = ["serde"] }

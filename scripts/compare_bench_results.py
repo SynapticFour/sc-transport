@@ -36,7 +36,12 @@ def main() -> int:
             curr_v = float(curr)
         except (TypeError, ValueError):
             continue
-        # Flag >20% slowdown (higher is worse for time-based metrics).
+        # Throughput-like metrics: lower is worse.
+        if key.endswith("_mbps") or "throughput" in key.lower() or "delivery_ratio" in key.lower():
+            if curr_v < prev_v * 0.80:
+                regressions.append((key, prev_v, curr_v))
+            continue
+        # Time/latency-like metrics: higher is worse.
         if curr_v > prev_v * 1.20:
             regressions.append((key, prev_v, curr_v))
 

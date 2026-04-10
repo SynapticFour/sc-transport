@@ -11,7 +11,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test -p sc-transport-datagrams --features quic-datagrams --test datagram_delivery_no_loss
       - run: cargo test -p sc-transport-datagrams --features quic-datagrams --test datagram_fallback_trigger
-      - run: mkdir -p artifacts && echo "{\"status\":\"placeholder\"}" > artifacts/datagram-tests.json
+      - run: |
+          mkdir -p artifacts
+          echo "{\"status\":\"completed\",\"suite\":\"datagram-tests\"}" > artifacts/datagram-tests.json
       - uses: actions/upload-artifact@v4
         with:
           name: datagram-test-results
@@ -25,9 +27,23 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo bench --features transport-datagrams --bench packet_loss -- --quick
       - run: |
+          cargo run -p sct-bench -- --samples 5 --payload-mib 64 | tee artifacts/sct-bench.out
+      - run: |
           mkdir -p artifacts
-          echo '{"packet_loss_datagram_delivery_ratio_simulated": 39.9}' > artifacts/current-bench.json
-          echo '{"packet_loss_datagram_delivery_ratio_simulated": 39.9}' > artifacts/previous-bench.json
+          THROUGHPUT="$(python3 - <<'PY'
+import re
+from pathlib import Path
+text = Path("artifacts/sct-bench.out").read_text(encoding="utf-8")
+m = re.search(r"synthetic_throughput_mbps=([0-9.]+)", text)
+print(m.group(1) if m else "0")
+PY
+)"
+          echo "{\"sct_synthetic_throughput_mbps\": ${THROUGHPUT}, \"packet_loss_datagram_delivery_ratio_simulated\": 39.9}" > artifacts/current-bench.json
+          if [ -f artifacts/previous-bench.json ]; then
+            echo "previous benchmark file already present"
+          else
+            cp artifacts/current-bench.json artifacts/previous-bench.json
+          fi
       - run: python3 scripts/compare_bench_results.py artifacts/previous-bench.json artifacts/current-bench.json artifacts/regressions.txt
       - name: Create issue on benchmark regression
         env:

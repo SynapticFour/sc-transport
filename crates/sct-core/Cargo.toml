@@ -1,0 +1,30 @@
+[package]
+name = "sct-core"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "SPARQ core transport library."
+
+[dependencies]
+quinn = "0.11"
+quinn-proto = "0.11"
+rustls = { version = "0.23", features = ["ring"] }
+tokio = { version = "1", features = ["full"] }
+bytes = "1"
+blake3 = "1"
+zstd = "0.13"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+anyhow = "1"
+thiserror = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bincode = { version = "2", features = ["serde"] }
+prometheus = "0.13"
+socket2 = "0.5"
+dirs = "5"
+rcgen = "0.13"
+sct-proto = { path = "../sct-proto" }
+
+[dev-dependencies]
+tempfile = "3"

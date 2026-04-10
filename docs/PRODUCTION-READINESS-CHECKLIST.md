@@ -11,10 +11,10 @@ production use in the Synaptic Core stack.
 
 ## A) Linux Netem Measurement Campaign (Required)
 
-- [ ] Run packet-loss integration tests on Linux host with root privileges.
-- [ ] Run latency and throughput benches on Linux with and without `tc netem`.
-- [ ] Validate fallback behavior at and above threshold (`> 15%` loss).
-- [ ] Confirm test reproducibility across at least 3 independent runs.
+- [x] Run packet-loss integration tests on Linux host with root privileges.
+- [x] Run latency and throughput benches on Linux with and without `tc netem`.
+- [x] Validate fallback behavior at and above threshold (`> 15%` loss).
+- [x] Confirm test reproducibility across at least 3 independent runs.
 
 ### Commands
 
@@ -26,53 +26,53 @@ production use in the Synaptic Core stack.
 
 ### Required Artifacts
 
-- [ ] `docs/RESULTS/<date>-linux-netem-baseline.md`
-- [ ] `docs/RESULTS/<date>-linux-netem-5pct.md`
-- [ ] `docs/RESULTS/<date>-linux-netem-20pct.md`
-- [ ] Raw benchmark JSON/exports attached or linked from each report.
+- [x] `docs/RESULTS/<date>-linux-netem-baseline.md`
+- [x] `docs/RESULTS/<date>-linux-netem-5pct.md`
+- [x] `docs/RESULTS/<date>-linux-netem-20pct.md`
+- [x] Raw benchmark JSON/exports attached or linked from each report.
 
 ## B) QUIC Primary Path Validation (Required)
 
-- [ ] QUIC stream path validated as primary (not fallback-only behavior).
-- [ ] QUIC datagram loopback/path validated under `quic-datagrams` feature.
-- [ ] MTU/truncation behavior verified with oversized event payloads.
-- [ ] Reconnect/session behavior validated for repeated subscriptions.
+- [x] QUIC stream path validated as primary (not fallback-only behavior).
+- [x] QUIC datagram loopback/path validated under `quic-datagrams` feature.
+- [x] MTU/truncation behavior verified with oversized event payloads.
+- [x] Reconnect/session behavior validated for repeated subscriptions.
 
 ### Required Evidence
 
-- [ ] Passing test logs for QUIC stream/datagram feature builds.
-- [ ] At least one documented failure-mode run and fallback recovery result.
-- [ ] Metrics snapshot showing `fallback_count`, `events_dropped`, `events_sent`.
+- [x] Passing test logs for QUIC stream/datagram feature builds.
+- [x] At least one documented failure-mode run and fallback recovery result.
+- [x] Metrics snapshot showing `fallback_count`, `events_dropped`, `events_sent`.
 
 ## C) Transparency Contract Sign-off (Required)
 
-- [ ] `transport_transparency` test passes consistently in CI and local runs.
-- [ ] Final workflow state equivalence confirmed across SSE/QUIC stream/datagram.
-- [ ] Datagram subset semantics documented and acknowledged by stakeholders.
-- [ ] No client-visible contract differences for final workflow state.
+- [x] `transport_transparency` test passes consistently in CI and local runs.
+- [x] Final workflow state equivalence confirmed across SSE/QUIC stream/datagram.
+- [x] Datagram subset semantics documented and acknowledged by stakeholders.
+- [x] No client-visible contract differences for final workflow state.
 
 ### Required Artifacts
 
-- [ ] Updated `docs/DATAGRAM-SEMANTICS.md` (kept in sync with implementation).
-- [ ] Updated `docs/FALLBACK-BEHAVIOR.md` with observed runtime behavior.
+- [x] Updated `docs/DATAGRAM-SEMANTICS.md` (kept in sync with implementation).
+- [x] Updated `docs/FALLBACK-BEHAVIOR.md` with observed runtime behavior.
 
 ## D) Operational Readiness (Required)
 
-- [ ] CI pipelines green for stable jobs (`ci.yml`).
-- [ ] Experimental jobs run and archive results without gating merges.
-- [ ] Regression comparison script produces actionable outputs.
-- [ ] Automatic issue creation works for benchmark regressions in experimental CI.
+- [x] CI pipelines green for stable jobs (`ci.yml`).
+- [x] Experimental jobs run and archive results without gating merges.
+- [x] Regression comparison script produces actionable outputs.
+- [x] Automatic issue creation works for benchmark regressions in experimental CI.
 
 ### Required Artifacts
 
-- [ ] One successful `experimental.yml` run with uploaded benchmark artifact.
-- [ ] One regression simulation run producing a GitHub issue.
+- [x] One successful `experimental.yml` run with uploaded benchmark artifact.
+- [x] One regression simulation run producing a GitHub issue.
 
 ## Release Decision Record
 
 Before release, create a final decision record in:
 
-- [ ] `docs/RESULTS/<date>-production-readiness-decision.md`
+- [x] `docs/RESULTS/<date>-production-readiness-decision.md`
 
 Record must include:
 

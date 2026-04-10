@@ -12,6 +12,57 @@ Provides implementations of the `Transport` trait for telemetry delivery:
 | sc-transport-quic | QUIC reliable streams | **Optional** | When 0-RTT reconnection or no HoL blocking matters. |
 | sc-transport-datagrams | QUIC unreliable datagrams | **Experimental (0.x)** | Research only. See [LIMITATIONS](docs/LIMITATIONS.md). |
 
+## SPARQ bootstrap (new)
+
+This repository now also contains a SPARQ bootstrap workspace for high-throughput
+scientific data transfer foundations:
+
+| Crate | Purpose | Status |
+|-------|---------|--------|
+| `sct-proto` | Manifest/chunk wire structures using `serde` + `bincode` | Bootstrap |
+| `sct-core` | SPARQ protocol, QUIC endpoint wrapper, sender/receiver MVP | Bootstrap |
+| `sct-cli` | `sct send|recv|probe|bench` command surface | Bootstrap |
+| `sct-bench` | Benchmark harness entrypoint | Bootstrap |
+| `sct-daemon` | REST daemon for queued transfers + recovery | Bootstrap |
+
+Design philosophy:
+- Build on open QUIC (IETF RFC 9000) rather than bespoke UDP protocol mechanics.
+- Keep control + data semantics explicit and observable in protocol types.
+- Start with a compile-safe MVP, then harden with WAN tuning and profiling phases.
+
+Quick CLI examples:
+
+```bash
+# receive one transfer
+cargo run -p sct-cli -- recv --port 7272 --output-dir /tmp --once
+
+# send with auto compression and json progress
+cargo run -p sct-cli -- send ./dataset.bin sct://127.0.0.1:7272 --compression auto --json
+
+# probe and bench
+cargo run -p sct-cli -- probe sct://127.0.0.1:7272 --samples 5
+cargo run -p sct-cli -- bench sct://127.0.0.1:7272 --samples 5
+```
+
+## sct-daemon operations
+
+The daemon provides transfer queueing, priority updates, cancellation, and restart recovery.
+
+- Daemon API: `POST /v1/transfer`, `GET/PATCH/DELETE /v1/transfer/{id}`, `GET /v1/transfers`
+- Transfer modes:
+  - push: `source=file://...` and `destination=sct://host:port`
+  - receive: `source=sct://...` and `destination=<output-dir>`
+- Recovery model:
+  - snapshot state: `.sct-daemon/transfers.json`
+  - append-only event log: `.sct-daemon/events.jsonl`
+  - on restart, queued jobs are rebuilt; active jobs are recovered as queued.
+
+Troubleshooting highlights:
+- TOFU host-key mismatch: remove stale entries in `~/.sct/known_hosts`.
+- Resume leftovers: partial receive files (`*.part`, `*.state.json`) are expected during interrupted transfers and cleaned up on successful completion.
+
+See [`docs/sct-daemon-ops.md`](docs/sct-daemon-ops.md) for the operator runbook.
+
 ## Transparency contract
 
 All three transports implement the same `Transport` trait. Switching between

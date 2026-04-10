@@ -1,0 +1,17 @@
+[
+  {
+    "transfer_id": "5df05a74-ccba-4470-a0a6-007888a93949",
+    "source": "sct://a:1/file",
+    "destination": "/tmp",
+    "priority": 1,
+    "status": "queued",
+    "progress_pct": 0.0,
+    "throughput_mbps": 0.0,
+    "bytes_transferred": 0,
+    "bytes_total": 1073741824,
+    "error": null,
+    "created_at_unix_ms": 1775831464504,
+    "updated_at_unix_ms": 1775831464504,
+    "attempts": 0
+  }
+]
