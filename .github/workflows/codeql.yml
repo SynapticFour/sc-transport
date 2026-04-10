@@ -24,6 +24,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Load CI config (SARIF upload policy)
+        id: ci_config
+        run: |
+          if [ -n "${{ vars.CODEQL_UPLOAD_SARIF }}" ]; then
+            case "${{ vars.CODEQL_UPLOAD_SARIF }}" in
+              true|1|yes|TRUE) echo "upload=always" >> "$GITHUB_OUTPUT" ;;
+              *) echo "upload=never" >> "$GITHUB_OUTPUT" ;;
+            esac
+            exit 0
+          fi
+          if [ -f .github/ci-config.json ]; then
+            node -e "const j=require('./.github/ci-config.json'); const u=(j.code_scanning&&j.code_scanning.upload_sarif===true)?'always':'never'; require('fs').appendFileSync(process.env.GITHUB_OUTPUT, 'upload='+u+'\\n');"
+          else
+            echo "upload=never" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
@@ -34,3 +50,5 @@ jobs:
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
+        with:
+          upload: ${{ steps.ci_config.outputs.upload }}

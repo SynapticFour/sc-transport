@@ -1,0 +1,6 @@
+{
+  "_comment": "CI policy for this repository. Set code_scanning.upload_sarif to true when GitHub Advanced Security is available (private repos) or when the repo is public and code scanning is enabled. Optional override without commit: GitHub repo Settings -> Secrets and variables -> Actions -> Variables -> CODEQL_UPLOAD_SARIF = true",
+  "code_scanning": {
+    "upload_sarif": false
+  }
+}
