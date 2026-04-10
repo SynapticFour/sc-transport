@@ -7,4 +7,4 @@ description = "SPARQ protocol message definitions for sc-transport."
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
-bincode = { version = "2", features = ["serde"] }
+bincode = { version = "3", features = ["serde"] }
