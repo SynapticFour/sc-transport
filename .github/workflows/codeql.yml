@@ -9,8 +9,51 @@ on:
     - cron: '22 3 * * 1'
 
 jobs:
+  detect-languages:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.detect.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect CodeQL languages
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+          langs=()
+
+          if find . -type f \( -name '*.js' -o -name '*.jsx' -o -name '*.ts' -o -name '*.tsx' \)             -not -path '*/node_modules/*' -not -path '*/dist/*' -not -path '*/build/*' | grep -q .; then
+            langs+=("javascript-typescript")
+          fi
+
+          if find . -type f -name '*.py' -not -path '*/.venv/*' -not -path '*/venv/*' | grep -q .; then
+            langs+=("python")
+          fi
+
+          if find . -type f -name 'Cargo.toml' -not -path '*/target/*' | grep -q .; then
+            langs+=("rust")
+          fi
+
+          if [ ${#langs[@]} -eq 0 ]; then
+            echo 'matrix={"language":[]}' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          json=$(printf '%s
+' "${langs[@]}" | python3 - <<'PYJSON'
+import json,sys
+arr=[line.strip() for line in sys.stdin if line.strip()]
+print(json.dumps({"language": arr}))
+PYJSON
+)
+          echo "matrix=$json" >> "$GITHUB_OUTPUT"
+
   analyze:
-    name: Analyze
+    name: Analyze (${{ matrix.language }})
+    needs: detect-languages
+    if: ${{ fromJson(needs.detect-languages.outputs.matrix).language[0] != null }}
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -18,8 +61,7 @@ jobs:
       security-events: write
     strategy:
       fail-fast: false
-      matrix:
-        language: ['javascript-typescript', 'python', 'rust']
+      matrix: ${{ fromJson(needs.detect-languages.outputs.matrix) }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
