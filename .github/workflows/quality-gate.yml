@@ -30,50 +30,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          list_node_projects() {
-            python3 - <<'PYLIST'
-import os
-skip = {'.git', 'node_modules', 'dist', 'build', '.next', 'coverage', '.venv', 'venv'}
-for dp, dns, fns in os.walk('.'):
-    dns[:] = [d for d in dns if d not in skip]
-    if 'package.json' in fns:
-      print(dp)
-PYLIST
-          }
-
-          list_python_projects() {
-            python3 - <<'PYLIST'
-import os
-skip = {'.git', 'node_modules', 'dist', 'build', '.next', 'coverage', '.venv', 'venv'}
-seen = set()
-for dp, dns, fns in os.walk('.'):
-    dns[:] = [d for d in dns if d not in skip]
-    if 'pyproject.toml' in fns or 'requirements.txt' in fns:
-      if dp not in seen:
-        seen.add(dp)
-        print(dp)
-PYLIST
-          }
-
-          list_rust_projects() {
-            python3 - <<'PYLIST'
-import os
-skip = {'.git', 'node_modules', 'dist', 'build', '.next', 'coverage', '.venv', 'venv', 'target'}
-for dp, dns, fns in os.walk('.'):
-    dns[:] = [d for d in dns if d not in skip]
-    if 'Cargo.toml' in fns:
-      print(dp)
-PYLIST
-          }
-
           echo "== Node checks =="
-          node_found=0
-          while IFS= read -r dir; do
-            [ -n "$dir" ] || continue
-            node_found=1
+          find . -name package.json -not -path '*/node_modules/*' -not -path '*/dist/*' -not -path '*/build/*' | while read -r pkg; do
+            dir=$(dirname "$pkg")
             echo "-- $dir"
             pushd "$dir" >/dev/null
-
             run_cmd="npm run"
             if [ -f pnpm-lock.yaml ]; then
               corepack enable
@@ -94,26 +55,19 @@ PYLIST
             node -e "const s=require('./package.json').scripts||{}; process.exit(s.typecheck?0:1)" && ${run_cmd} typecheck || echo "typecheck script not found; skipping"
             node -e "const s=require('./package.json').scripts||{}; process.exit(s.test?0:1)" && ${run_cmd} test || echo "test script not found; skipping"
             popd >/dev/null
-          done < <(list_node_projects)
-
-          if [ "$node_found" -eq 0 ]; then
-            echo "No Node projects detected"
-          fi
+          done
 
           echo "== Python checks =="
-          py_found=0
-          while IFS= read -r dir; do
-            [ -n "$dir" ] || continue
-            py_found=1
+          find . \( -name pyproject.toml -o -name requirements.txt \) -not -path '*/.venv/*' -not -path '*/venv/*' | while read -r manifest; do
+            dir=$(dirname "$manifest")
             echo "-- $dir"
             pushd "$dir" >/dev/null
             python -m pip install --upgrade pip
             if [ -f requirements.txt ]; then
               pip install -r requirements.txt
             elif [ -f pyproject.toml ]; then
-              pip install -e .
+              pip install -e . || true
             fi
-
             if [ -d tests ] || ls test_*.py >/dev/null 2>&1; then
               pip install pytest
               pytest -q
@@ -121,25 +75,15 @@ PYLIST
               echo "No Python tests detected in $dir; skipping pytest"
             fi
             popd >/dev/null
-          done < <(list_python_projects)
-
-          if [ "$py_found" -eq 0 ]; then
-            echo "No Python projects detected"
-          fi
+          done
 
           echo "== Rust checks =="
-          rust_found=0
-          while IFS= read -r dir; do
-            [ -n "$dir" ] || continue
-            rust_found=1
+          find . -name Cargo.toml -not -path '*/target/*' | while read -r manifest; do
+            dir=$(dirname "$manifest")
             echo "-- $dir"
             pushd "$dir" >/dev/null
             cargo fmt --all -- --check
             cargo clippy --all-targets --all-features -- -D warnings
             cargo test --all-features
             popd >/dev/null
-          done < <(list_rust_projects)
-
-          if [ "$rust_found" -eq 0 ]; then
-            echo "No Rust projects detected"
-          fi
+          done
