@@ -152,7 +152,7 @@ impl QuicStreamTransport {
         let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
             .map_err(|e| TransportError::QuicError(e.to_string()))?;
         let cert_der: CertificateDer<'static> = CertificateDer::from(cert.cert.der().to_vec());
-        let key_der = PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der());
+        let key_der = PrivatePkcs8KeyDer::from(cert.signing_key.serialize_der());
 
         let mut server_config =
             ServerConfig::with_single_cert(vec![cert_der.clone()], key_der.into())

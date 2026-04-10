@@ -124,7 +124,7 @@ impl SctEndpoint {
         );
         let cert = generate_simple_self_signed(vec!["localhost".to_string()])?;
         let cert_der: CertificateDer<'static> = CertificateDer::from(cert.cert.der().to_vec());
-        let key_der = PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der());
+        let key_der = PrivatePkcs8KeyDer::from(cert.signing_key.serialize_der());
 
         let mut server_config = ServerConfig::with_single_cert(vec![cert_der], key_der.into())
             .map_err(|e| TransportError::Quic(e.to_string()))?;
