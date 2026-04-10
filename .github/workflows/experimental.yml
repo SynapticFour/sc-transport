@@ -1,6 +1,9 @@
-name: sc-transport Experimental (datagrams)
+name: Sc Transport Experimental Datagrams
 
-on: [push]
+on:
+  push:
+    branches:
+      - main
 
 jobs:
   datagram-tests:
@@ -27,6 +30,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo bench --features transport-datagrams --bench packet_loss -- --quick
       - run: |
+          mkdir -p artifacts
           cargo run -p sct-bench -- --samples 5 --payload-mib 64 | tee artifacts/sct-bench.out
       - run: |
           mkdir -p artifacts

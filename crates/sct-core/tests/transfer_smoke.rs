@@ -2,9 +2,11 @@ use sct_core::receiver::{FileReceiver, ReceiverConfig};
 use sct_core::protocol::{read_framed, write_framed, ManifestAck, TransferComplete, TransferManifest};
 use sct_core::sender::{FileSender, SenderConfig};
 use sct_core::transport::{SctEndpoint, TransportConfig};
+use serial_test::serial;
 use std::net::SocketAddr;
 
 #[tokio::test]
+#[serial]
 async fn sender_receiver_transfer_smoke() {
     let recv_tmp = tempfile::tempdir().expect("tempdir");
     std::env::set_var("HOME", recv_tmp.path());
@@ -47,6 +49,7 @@ async fn sender_receiver_transfer_smoke() {
 }
 
 #[tokio::test]
+#[serial]
 async fn sender_receiver_resume_from_bitmap_state() {
     let recv_tmp = tempfile::tempdir().expect("tempdir");
     std::env::set_var("HOME", recv_tmp.path());
@@ -117,6 +120,7 @@ async fn sender_receiver_resume_from_bitmap_state() {
 }
 
 #[tokio::test]
+#[serial]
 async fn resume_ignores_corrupted_state_file() {
     let recv_tmp = tempfile::tempdir().expect("tempdir");
     std::env::set_var("HOME", recv_tmp.path());
@@ -170,6 +174,7 @@ async fn resume_ignores_corrupted_state_file() {
 }
 
 #[tokio::test]
+#[serial]
 async fn missing_final_ack_fails_in_strict_mode() {
     let send_tmp = tempfile::tempdir().expect("tempdir");
     std::env::set_var("HOME", send_tmp.path());

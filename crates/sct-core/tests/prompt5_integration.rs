@@ -2,6 +2,7 @@ use sct_core::protocol::CompressionType;
 use sct_core::receiver::{FileReceiver, ReceiverConfig};
 use sct_core::sender::{FileSender, SenderConfig};
 use sct_core::transport::{SctEndpoint, TransportConfig};
+use serial_test::serial;
 use std::net::SocketAddr;
 use std::time::Instant;
 
@@ -26,6 +27,7 @@ async fn start_receiver(output: std::path::PathBuf, resume: bool) -> (SocketAddr
 }
 
 #[tokio::test]
+#[serial]
 async fn loopback_throughput_is_nonzero() {
     let recv_tmp = tempfile::tempdir().expect("tempdir");
     std::env::set_var("HOME", recv_tmp.path());
@@ -53,6 +55,7 @@ async fn loopback_throughput_is_nonzero() {
 }
 
 #[tokio::test]
+#[serial]
 async fn compression_effectiveness_for_redundant_payload() {
     let recv_tmp = tempfile::tempdir().expect("tempdir");
     std::env::set_var("HOME", recv_tmp.path());
@@ -84,6 +87,7 @@ async fn compression_effectiveness_for_redundant_payload() {
 }
 
 #[tokio::test]
+#[serial]
 async fn resume_stress_multiple_iterations() {
     for _ in 0..3 {
         let recv_tmp = tempfile::tempdir().expect("tempdir");
@@ -116,6 +120,7 @@ async fn resume_stress_multiple_iterations() {
 }
 
 #[tokio::test]
+#[serial]
 async fn multi_file_dataset_transfers() {
     let recv_tmp = tempfile::tempdir().expect("tempdir");
     std::env::set_var("HOME", recv_tmp.path());
