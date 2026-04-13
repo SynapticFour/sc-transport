@@ -5,9 +5,9 @@ use clap::{Parser, Subcommand, ValueEnum};
 use sct_core::transport::{SctEndpoint, TransportConfig};
 use serde::Serialize;
 use std::fs::{self, File};
+use std::io::Write;
 #[cfg(target_os = "linux")]
 use std::io::{BufRead, BufReader};
-use std::io::Write;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -160,7 +160,8 @@ fn run_netem_matrix(
                 let outcome = run_transfer_case(&run_root, profile.name, *size_mib, port);
                 match outcome {
                     Ok((duration_s, sent, recv)) => {
-                        let throughput = (sent as f64 * 8.0 / 1_000_000.0) / duration_s.max(0.000_001);
+                        let throughput =
+                            (sent as f64 * 8.0 / 1_000_000.0) / duration_s.max(0.000_001);
                         println!(
                             "[{}] size={}MiB duration={:.2}s throughput={:.2}Mbps sent={} recv={} status=ok",
                             profile.name, size_mib, duration_s, throughput, sent, recv
@@ -177,7 +178,10 @@ fn run_netem_matrix(
                         });
                     }
                     Err(err) => {
-                        println!("[{}] size={}MiB status=error error={}", profile.name, size_mib, err);
+                        println!(
+                            "[{}] size={}MiB status=error error={}",
+                            profile.name, size_mib, err
+                        );
                         results.push(ScenarioResult {
                             profile: profile.name.to_string(),
                             size_mib: *size_mib,
@@ -219,7 +223,15 @@ fn run_netem_matrix(
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = (profile_arg, interface, sizes_mib, base_port, use_sudo, output_json, keep_files);
+        let _ = (
+            profile_arg,
+            interface,
+            sizes_mib,
+            base_port,
+            use_sudo,
+            output_json,
+            keep_files,
+        );
         bail!("netem matrix requires Linux because tc/netem is Linux-only");
     }
 }
@@ -448,7 +460,9 @@ fn clear_profile(interface: &str, use_sudo: bool) -> Result<()> {
         return Ok(());
     }
     let stderr = String::from_utf8_lossy(&out.stderr);
-    if stderr.contains("No such file or directory") || stderr.contains("Cannot delete qdisc with handle of zero") {
+    if stderr.contains("No such file or directory")
+        || stderr.contains("Cannot delete qdisc with handle of zero")
+    {
         return Ok(());
     }
     bail!("failed to clear tc qdisc: {}", stderr.trim())
