@@ -7,6 +7,27 @@ This runbook explains how to emulate WAN quality for local `sct` transfer tests.
 
 > Note: both Linux and macOS traffic shaping commands require root privileges.
 
+## Single-command local transfer test
+
+Use the `Makefile` wrapper to run receiver + sender + checksum verification in one command.
+
+```bash
+# 1GB, no shaping
+make transfer-test
+```
+
+```bash
+# 20GB Toronto<->Auckland profile (auto uses pf/dummynet on macOS, tc on Linux)
+make transfer-test PROFILE=toronto-auckland SIZE_GB=20
+```
+
+Tunable knobs:
+
+- `PORT` (default `7272`)
+- `OUT_BASE` (default `/tmp/sct-transfer-test`)
+- `RATE_MBIT`, `DELAY_MS`, `LOSS` for profile tuning
+- `INTERFACE` for Linux shaping (default `lo`)
+
 ## Linux quick start (`tc netem`)
 
 Use the built-in matrix command:
@@ -17,6 +38,12 @@ cargo run -p sct-bench -- netem-matrix \
   --profile all \
   --sizes-mib 1,16,256,1024 \
   --output-json docs/RESULTS/netem-matrix.json
+```
+
+Copy/paste example for a single large transfer on Linux:
+
+```bash
+sudo make transfer-test PROFILE=toronto-auckland SIZE_GB=20 INTERFACE=lo
 ```
 
 ## macOS equivalent (`pf` + `dnctl`)
@@ -75,6 +102,12 @@ mkfile -n 20g /tmp/sct-send/payload-20g.bin
 time cargo run -p sct-cli -- send /tmp/sct-send/payload-20g.bin sct://127.0.0.1:7272 --compression none --quiet
 ```
 
+Or as one copy/paste command:
+
+```bash
+make transfer-test PROFILE=toronto-auckland SIZE_GB=20 PORT=7272 OUT_BASE=/tmp/sct-transfer-test
+```
+
 Optional integrity check:
 
 ```bash
@@ -101,6 +134,11 @@ sudo dnctl pipe 1 config bw 900Mbit/s delay 6ms plr 0.0001
 ```
 
 - Approx: 12 ms RTT, near-zero loss, high capacity
+- Single command:
+
+```bash
+make transfer-test PROFILE=toronto-auckland SIZE_GB=5 RATE_MBIT=900 DELAY_MS=6 LOSS=0.0001
+```
 
 ### Busy continental
 
@@ -109,6 +147,11 @@ sudo dnctl pipe 1 config bw 200Mbit/s delay 35ms plr 0.002
 ```
 
 - Approx: 70 ms RTT, 0.2% loss
+- Single command:
+
+```bash
+make transfer-test PROFILE=toronto-auckland SIZE_GB=10 RATE_MBIT=200 DELAY_MS=35 LOSS=0.002
+```
 
 ### Very degraded long-haul
 
@@ -117,6 +160,11 @@ sudo dnctl pipe 1 config bw 20Mbit/s delay 150ms plr 0.03
 ```
 
 - Approx: 300 ms RTT, 3% loss, constrained throughput
+- Single command:
+
+```bash
+make transfer-test PROFILE=toronto-auckland SIZE_GB=2 RATE_MBIT=20 DELAY_MS=150 LOSS=0.03
+```
 
 ## CI suggestion
 

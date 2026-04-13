@@ -48,6 +48,9 @@ cargo run -p sct-bench -- synthetic --samples 5 --payload-mib 64
 
 # Linux only: apply tc/netem good/bad/very-bad matrix and run transfer sizes
 cargo run -p sct-bench -- netem-matrix --interface lo --profile all --sizes-mib 1,16,256,1024 --output-json docs/RESULTS/netem-matrix.json
+
+# one-command transfer test wrapper (receiver + sender + checksum)
+make transfer-test PROFILE=toronto-auckland SIZE_GB=20
 ```
 
 For Linux and macOS network emulation playbooks (including a 20 GB Toronto<->Auckland example), see [`docs/NETWORK-EMULATION.md`](docs/NETWORK-EMULATION.md).
