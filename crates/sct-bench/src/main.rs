@@ -215,7 +215,7 @@ fn run_netem_matrix(
         } else {
             println!("{}", serde_json::to_string_pretty(&summary)?);
         }
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -324,7 +324,7 @@ fn run_sender(send_file: &Path, port: u16) -> Result<()> {
     if !out.status.success() {
         bail!(
             "sender failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim().to_string()
+            String::from_utf8_lossy(&out.stderr).trim()
         );
     }
     Ok(())
@@ -335,7 +335,7 @@ fn wait_receiver(child: Child) -> Result<()> {
     if !out.status.success() {
         bail!(
             "receiver failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim().to_string()
+            String::from_utf8_lossy(&out.stderr).trim()
         );
     }
     Ok(())
@@ -364,7 +364,7 @@ fn ensure_sct_binary_exists() -> Result<()> {
     if !out.status.success() {
         bail!(
             "failed to build sct-cli: {}",
-            String::from_utf8_lossy(&out.stderr).trim().to_string()
+            String::from_utf8_lossy(&out.stderr).trim()
         );
     }
     Ok(())
