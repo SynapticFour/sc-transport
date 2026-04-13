@@ -4,6 +4,7 @@ on: [push, pull_request]
 
 jobs:
   build:
+    if: github.actor != 'dependabot[bot]'
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -21,6 +22,7 @@ jobs:
       - run: cargo fmt --all -- --check
 
   test-transport-core:
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,6 +31,7 @@ jobs:
       - run: cargo test -p sc-transport-quic --features quic-streams
 
   test-integration:
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -38,6 +41,7 @@ jobs:
       - run: cargo test --features "transport-quic transport-datagrams" --test transport_transparency
 
   test-prompt5-sct-core:
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -46,6 +50,7 @@ jobs:
       - run: cargo test -p sct-core --test transfer_smoke
 
   test-sct-rucio-plugin:
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
