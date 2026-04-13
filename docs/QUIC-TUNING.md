@@ -16,6 +16,8 @@
 
 - Expect different UDP behavior than Linux due to platform networking stack.
 - Prefer loopback and controlled LAN tests for consistency.
+- Use `pf` + `dummynet` (`pfctl` + `dnctl`) as the macOS equivalent of Linux `tc netem`.
+- See [`docs/NETWORK-EMULATION.md`](NETWORK-EMULATION.md) for command-ready profiles and cleanup.
 
 ## Observability
 

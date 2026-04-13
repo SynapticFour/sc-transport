@@ -1861,6 +1861,8 @@ dependencies = [
  "blake3",
  "clap",
  "sct-core",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 

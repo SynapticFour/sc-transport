@@ -11,3 +11,5 @@ clap = { version = "4", features = ["derive"] }
 sct-core = { path = "../sct-core" }
 blake3 = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

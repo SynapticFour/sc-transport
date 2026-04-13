@@ -42,7 +42,15 @@ cargo run -p sct-cli -- send ./dataset.bin sct://127.0.0.1:7272 --compression au
 # probe and bench
 cargo run -p sct-cli -- probe sct://127.0.0.1:7272 --samples 5
 cargo run -p sct-cli -- bench sct://127.0.0.1:7272 --samples 5
+
+# synthetic CPU/memory throughput baseline
+cargo run -p sct-bench -- synthetic --samples 5 --payload-mib 64
+
+# Linux only: apply tc/netem good/bad/very-bad matrix and run transfer sizes
+cargo run -p sct-bench -- netem-matrix --interface lo --profile all --sizes-mib 1,16,256,1024 --output-json docs/RESULTS/netem-matrix.json
 ```
+
+For Linux and macOS network emulation playbooks (including a 20 GB Toronto<->Auckland example), see [`docs/NETWORK-EMULATION.md`](docs/NETWORK-EMULATION.md).
 
 ## sct-daemon operations
 

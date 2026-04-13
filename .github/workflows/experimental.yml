@@ -31,7 +31,7 @@ jobs:
       - run: cargo bench --features transport-datagrams --bench packet_loss -- --quick
       - run: |
           mkdir -p artifacts
-          cargo run -p sct-bench -- --samples 5 --payload-mib 64 | tee artifacts/sct-bench.out
+          cargo run -p sct-bench -- synthetic --samples 5 --payload-mib 64 | tee artifacts/sct-bench.out
       - run: |
           mkdir -p artifacts
           THROUGHPUT="$(python3 - <<'PY'
