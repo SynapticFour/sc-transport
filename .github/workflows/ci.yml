@@ -11,7 +11,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         rust: [stable]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rust }}
@@ -25,7 +25,7 @@ jobs:
     if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test -p sc-transport-core
       - run: cargo test -p sc-transport-quic --features quic-streams
@@ -34,7 +34,7 @@ jobs:
     if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --test sse_basic
       - run: cargo test --features transport-quic --test quic_stream_basic
@@ -44,7 +44,7 @@ jobs:
     if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test -p sct-core --test prompt5_integration
       - run: cargo test -p sct-core --test transfer_smoke
@@ -53,8 +53,8 @@ jobs:
     if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - name: Install plugin test deps
@@ -66,7 +66,7 @@ jobs:
         run: python -m pytest ./sct-rucio/tests --maxfail=1 --disable-warnings --junitxml=sct-rucio-pytest.xml
       - name: Upload sct-rucio pytest report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sct-rucio-pytest-report
           path: sct-rucio-pytest.xml
