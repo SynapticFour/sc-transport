@@ -4,8 +4,8 @@ Use this file for operational security contact paths and response expectations.
 
 ## Contacts
 
-- Primary security contact: `security@synapticfour.com`
-- General contact fallback: `contact@synapticfour.com`
+- Primary security contact: `contact@synapticfour.com`
+- General contact: `contact@synapticfour.com`
 
 ## Response targets
 
