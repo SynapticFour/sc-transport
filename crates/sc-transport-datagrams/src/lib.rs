@@ -22,6 +22,7 @@ use tokio::sync::OnceCell;
 pub struct QuicDatagramConfig {
     pub server_addr: SocketAddr,
     pub max_datagram_bytes: usize,
+    pub preferred_datagram_bytes: usize,
     pub loss_fallback_threshold: f64,
     pub loss_window_size: usize,
 }
@@ -31,6 +32,7 @@ impl Default for QuicDatagramConfig {
         Self {
             server_addr: SocketAddr::from((Ipv4Addr::LOCALHOST, 7272)),
             max_datagram_bytes: 1200,
+            preferred_datagram_bytes: 900,
             loss_fallback_threshold: 0.15,
             loss_window_size: 100,
         }
@@ -46,6 +48,7 @@ pub struct QuicDatagramTransport {
     fallback_threshold: f64,
     loss_window_size: usize,
     max_datagram_size: usize,
+    preferred_datagram_size: usize,
     #[cfg(feature = "quic-datagrams")]
     config: QuicDatagramConfig,
     #[cfg(feature = "quic-datagrams")]
@@ -61,20 +64,35 @@ impl Default for QuicDatagramTransport {
 }
 
 impl QuicDatagramTransport {
+    fn env_usize(name: &str) -> Option<usize> {
+        std::env::var(name).ok().and_then(|v| v.parse::<usize>().ok())
+    }
+
+    fn env_f64(name: &str) -> Option<f64> {
+        std::env::var(name).ok().and_then(|v| v.parse::<f64>().ok())
+    }
+
     pub fn new() -> Self {
         Self::with_config(QuicDatagramConfig::default())
     }
 
     pub fn with_config(config: QuicDatagramConfig) -> Self {
+        let max_datagram_size = Self::env_usize("SC_DGRAM_MAX_BYTES").unwrap_or(config.max_datagram_bytes);
+        let preferred_datagram_size = Self::env_usize("SC_DGRAM_PREFERRED_BYTES")
+            .unwrap_or(config.preferred_datagram_bytes)
+            .min(max_datagram_size);
+        let fallback_threshold =
+            Self::env_f64("SC_DGRAM_FALLBACK_THRESHOLD").unwrap_or(config.loss_fallback_threshold);
         Self {
             fallback: HttpSseTransport::new(),
             sent: Arc::new(AtomicU64::new(0)),
             dropped: Arc::new(AtomicU64::new(0)),
             fallback_count: Arc::new(AtomicU64::new(0)),
             loss_window: Arc::new(Mutex::new(VecDeque::new())),
-            fallback_threshold: config.loss_fallback_threshold,
+            fallback_threshold,
             loss_window_size: config.loss_window_size,
-            max_datagram_size: config.max_datagram_bytes,
+            max_datagram_size,
+            preferred_datagram_size,
             #[cfg(feature = "quic-datagrams")]
             config,
             #[cfg(feature = "quic-datagrams")]
@@ -126,7 +144,13 @@ impl QuicDatagramTransport {
         }
         let delivered = window.iter().filter(|v| **v).count() as f64;
         let loss_rate = 1.0 - (delivered / window.len() as f64);
-        loss_rate > self.fallback_threshold
+        loss_rate > self.effective_fallback_threshold()
+    }
+
+    fn effective_fallback_threshold(&self) -> f64 {
+        // Be slightly more tolerant by default to avoid flapping under noisy paths.
+        let bonus = Self::env_f64("SC_DGRAM_THRESHOLD_BONUS").unwrap_or(0.05);
+        (self.fallback_threshold + bonus).clamp(0.05, 0.9)
     }
 
     fn serialize_event_for_datagram(
@@ -337,6 +361,7 @@ impl Transport for QuicDatagramTransport {
         if self.should_force_fallback(&event) {
             self.record_loss_sample(false).await;
             self.fallback_count.fetch_add(1, Ordering::Relaxed);
+            let _ = self.fallback.send_event(run_id, event).await;
             return Ok(DeliveryStatus::FellBack {
                 reason: "forced_by_event_payload".to_string(),
             });
@@ -366,12 +391,32 @@ impl Transport for QuicDatagramTransport {
             return Ok(DeliveryStatus::Dropped);
         }
 
-        let (bytes, truncated) = match self.serialize_event_for_datagram(&event) {
-            Ok(v) => v,
+        let wire_size = match rmp_serde::to_vec_named(&event) {
+            Ok(v) => v.len(),
             Err(_) => {
                 self.record_loss_sample(false).await;
                 self.dropped.fetch_add(1, Ordering::Relaxed);
                 return Ok(DeliveryStatus::Dropped);
+            }
+        };
+        if wire_size > self.preferred_datagram_size {
+            self.fallback_count.fetch_add(1, Ordering::Relaxed);
+            let _ = self.fallback.send_event(run_id, event).await;
+            return Ok(DeliveryStatus::FellBack {
+                reason: "payload_over_preferred_datagram_size".to_string(),
+            });
+        }
+
+        let (bytes, _truncated) = match self.serialize_event_for_datagram(&event) {
+            Ok(v) => v,
+            Err(_) => {
+                self.record_loss_sample(false).await;
+                self.dropped.fetch_add(1, Ordering::Relaxed);
+                self.fallback_count.fetch_add(1, Ordering::Relaxed);
+                let _ = self.fallback.send_event(run_id, event).await;
+                return Ok(DeliveryStatus::FellBack {
+                    reason: "datagram_serialization_or_size_failure".to_string(),
+                });
             }
         };
         let delivered = {
@@ -415,7 +460,6 @@ impl Transport for QuicDatagramTransport {
         if delivered {
             self.record_loss_sample(true).await;
             let _ = self.fallback.send_event(run_id, event).await;
-            let _ = truncated;
             Ok(DeliveryStatus::Sent)
         } else {
             self.record_loss_sample(false).await;

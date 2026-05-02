@@ -1,0 +1,40 @@
+{
+  "before": {
+    "completion_first": false,
+    "p50_completion_ms": 31.0,
+    "p95_completion_ms": 31.0,
+    "p99_completion_ms": 31.0,
+    "straggler_count": 97,
+    "canceled_redundant_sends": 0
+  },
+  "after": {
+    "completion_first": true,
+    "p50_completion_ms": 31.0,
+    "p95_completion_ms": 31.0,
+    "p99_completion_ms": 31.0,
+    "straggler_count": 97,
+    "canceled_redundant_sends": 24
+  },
+  "delta": {
+    "p50_completion_ms": {
+      "abs": 0.0,
+      "pct": 0.0
+    },
+    "p95_completion_ms": {
+      "abs": 0.0,
+      "pct": 0.0
+    },
+    "p99_completion_ms": {
+      "abs": 0.0,
+      "pct": 0.0
+    },
+    "straggler_count": {
+      "abs": 0.0,
+      "pct": 0.0
+    },
+    "canceled_redundant_sends": {
+      "abs": 24.0,
+      "pct": 0.0
+    }
+  }
+}

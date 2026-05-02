@@ -120,6 +120,22 @@ mod tests {
     use crate::QuicStreamTransport;
     use sc_transport_core::{EventType, TelemetryEvent};
 
+    async fn with_insecure_quic_env<F, Fut, T>(f: F) -> T
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = T>,
+    {
+        let key = "SC_TRANSPORT_ALLOW_INSECURE_QUIC";
+        let prev = std::env::var(key).ok();
+        std::env::set_var(key, "true");
+        let out = f().await;
+        match prev {
+            Some(v) => std::env::set_var(key, v),
+            None => std::env::remove_var(key),
+        }
+        out
+    }
+
     fn mk(run_id: &str, i: u64) -> TelemetryEvent {
         TelemetryEvent {
             run_id: run_id.to_string(),
@@ -199,7 +215,10 @@ mod tests {
         });
         let events = (0..512).map(|i| mk("loop", i)).collect::<Vec<_>>();
         let t = QuicStreamTransport::with_server_addr(addr);
-        let res = t.send_events_batch("loop", events).await.expect("batch");
+        let res = with_insecure_quic_env(|| async {
+            t.send_events_batch("loop", events).await.expect("batch")
+        })
+        .await;
         let _ = recv_task.await;
         assert!(res.sent_events >= 480);
         assert!(res.effective_throughput_events_per_sec > 100.0);
@@ -234,7 +253,10 @@ mod tests {
 
         let t = QuicStreamTransport::with_server_addr(addr);
         let events = (0..64).map(|i| mk("limit", i)).collect::<Vec<_>>();
-        let res = t.send_events_batch("limit", events).await.expect("batch");
+        let res = with_insecure_quic_env(|| async {
+            t.send_events_batch("limit", events).await.expect("batch")
+        })
+        .await;
         assert!(res.failed_chunks > 0);
     }
 }

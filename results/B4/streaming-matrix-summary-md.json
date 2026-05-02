@@ -1,0 +1,773 @@
+# Streaming Matrix Summary
+
+- repeats: 5
+- aggregated cases: 48
+
+## quic-datagram / excellent / large
+- payload_bytes: 262144
+- closed_loop: true
+- eps p50: 49558.62
+- eps p95: 50372.57
+- elapsed p95: 0.0011s
+- sent_total: 0
+- dropped_total: 0
+- fallback_total: 200
+- mode-switch-count total: 5
+- effective-parity-rate p50: 0.3500
+- feedback-lag-ms p95: 3.00
+- duplication-rate p50: 0.3500
+- deadline-miss-rate p95: 0.2500
+- tail-ratio p99/p50: 2.6500
+
+## quic-datagram / excellent / medium
+- payload_bytes: 65536
+- closed_loop: true
+- eps p50: 85462.60
+- eps p95: 86021.51
+- elapsed p95: 0.0011s
+- sent_total: 0
+- dropped_total: 1
+- fallback_total: 199
+- mode-switch-count total: 5
+- effective-parity-rate p50: 0.3500
+- feedback-lag-ms p95: 3.00
+- duplication-rate p50: 0.3500
+- deadline-miss-rate p95: 0.2500
+- tail-ratio p99/p50: 2.6500
+
+## quic-datagram / excellent / small
+- payload_bytes: 4096
+- closed_loop: true
+- eps p50: 27437.19
+- eps p95: 29485.85
+- elapsed p95: 0.0015s
+- sent_total: 0
+- dropped_total: 0
+- fallback_total: 200
+- mode-switch-count total: 5
+- effective-parity-rate p50: 0.3500
+- feedback-lag-ms p95: 3.00
+- duplication-rate p50: 0.3500
+- deadline-miss-rate p95: 0.2500
+- tail-ratio p99/p50: 2.6500
+
+## quic-datagram / excellent / tiny
+- payload_bytes: 256
+- closed_loop: true
+- eps p50: 155164.45
+- eps p95: 160347.63
+- elapsed p95: 0.0038s
+- sent_total: 198
+- dropped_total: 0
+- fallback_total: 2
+- mode-switch-count total: 5
+- effective-parity-rate p50: 0.0100
+- feedback-lag-ms p95: 2.02
+- duplication-rate p50: 0.1000
+- deadline-miss-rate p95: 0.0075
+- tail-ratio p99/p50: 1.1875
+
+## quic-datagram / good / large
+- payload_bytes: 262144
+- closed_loop: true
+- eps p50: 345.39
+- eps p95: 354.55
+- elapsed p95: 0.1173s
+- sent_total: 0
+- dropped_total: 1
+- fallback_total: 199
+- mode-switch-count total: 5
+- effective-parity-rate p50: 0.3500
+- feedback-lag-ms p95: 4.50
+- duplication-rate p50: 0.3500
+- deadline-miss-rate p95: 0.2500
+- tail-ratio p99/p50: 2.6540
+
+## quic-datagram / good / medium
+- payload_bytes: 65536
+- closed_loop: true
+- eps p50: 353.14
+- eps p95: 356.99
+- elapsed p95: 0.1136s
+- sent_total: 0
+- dropped_total: 1
+- fallback_total: 199
+- mode-switch-count total: 5
+- effective-parity-rate p50: 0.3500
+- feedback-lag-ms p95: 4.50
+- duplication-rate p50: 0.3500
+- deadline-miss-rate p95: 0.2500
+- tail-ratio p99/p50: 2.6540
+
+## quic-datagram / good / small
+- payload_bytes: 4096
+- closed_loop: true
+- eps p50: 353.49
+- eps p95: 353.66
+- elapsed p95: 0.1134s
+- sent_total: 0
+- dropped_total: 0
+- fallback_total: 200
+- mode-switch-count total: 5
+- effective-parity-rate p50: 0.3500
+- feedback-lag-ms p95: 4.50
+- duplication-rate p50: 0.3500
+- deadline-miss-rate p95: 0.2500
+- tail-ratio p99/p50: 2.6540
+
+## quic-datagram / good / tiny
+- payload_bytes: 256
+- closed_loop: true
+- eps p50: 359.65
+- eps p95: 368.08
+- elapsed p95: 0.1162s
+- sent_total: 198
+- dropped_total: 1
+- fallback_total: 1
+- mode-switch-count total: 5
+- effective-parity-rate p50: 0.0100
+- feedback-lag-ms p95: 3.04
+- duplication-rate p50: 0.1008
+- deadline-miss-rate p95: 0.0087
+- tail-ratio p99/p50: 1.1915
+
+## quic-datagram / poor / large
+- payload_bytes: 262144
+- closed_loop: true
+- eps p50: 119.88
+- eps p95: 120.31
+- elapsed p95: 0.3349s
+- sent_total: 0
+- dropped_total: 12
+- fallback_total: 188
+- mode-switch-count total: 15
+- effective-parity-rate p50: 0.3500
+- feedback-lag-ms p95: 19.50
+- duplication-rate p50: 0.3500
+- deadline-miss-rate p95: 0.2500
+- tail-ratio p99/p50: 2.7100
+
+## quic-datagram / poor / medium
+- payload_bytes: 65536
+- closed_loop: true
+- eps p50: 119.91
+- eps p95: 121.53
+- elapsed p95: 0.3354s
+- sent_total: 0
+- dropped_total: 12
+- fallback_total: 188
+- mode-switch-count total: 15
+- effective-parity-rate p50: 0.3500
+- feedback-lag-ms p95: 19.50
+- duplication-rate p50: 0.3500
+- deadline-miss-rate p95: 0.2500
+- tail-ratio p99/p50: 2.7100
+
+## quic-datagram / poor / small
+- payload_bytes: 4096
+- closed_loop: true
+- eps p50: 120.71
+- eps p95: 121.00
+- elapsed p95: 0.3334s
+- sent_total: 0
+- dropped_total: 12
+- fallback_total: 188
+- mode-switch-count total: 15
+- effective-parity-rate p50: 0.3500
+- feedback-lag-ms p95: 19.50
+- duplication-rate p50: 0.3500
+- deadline-miss-rate p95: 0.2500
+- tail-ratio p99/p50: 2.7100
+
+## quic-datagram / poor / tiny
+- payload_bytes: 256
+- closed_loop: true
+- eps p50: 120.51
+- eps p95: 121.08
+- elapsed p95: 0.3373s
+- sent_total: 188
+- dropped_total: 9
+- fallback_total: 3
+- mode-switch-count total: 15
+- effective-parity-rate p50: 0.0540
+- feedback-lag-ms p95: 13.49
+- duplication-rate p50: 0.1370
+- deadline-miss-rate p95: 0.0405
+- tail-ratio p99/p50: 1.3225
+
+## quic-datagram / very-poor / large
+- payload_bytes: 262144
+- closed_loop: true
+- eps p50: 67.09
+- eps p95: 67.28
+- elapsed p95: 0.5993s
+- sent_total: 0
+- dropped_total: 0
+- fallback_total: 200
+- mode-switch-count total: 50
+- effective-parity-rate p50: 0.3500
+- feedback-lag-ms p95: 39.00
+- duplication-rate p50: 0.3500
+- deadline-miss-rate p95: 0.2500
+- tail-ratio p99/p50: 2.8900
+
+## quic-datagram / very-poor / medium
+- payload_bytes: 65536
+- closed_loop: true
+- eps p50: 67.07
+- eps p95: 67.20
+- elapsed p95: 0.6010s
+- sent_total: 0
+- dropped_total: 0
+- fallback_total: 200
+- mode-switch-count total: 50
+- effective-parity-rate p50: 0.3500
+- feedback-lag-ms p95: 39.00
+- duplication-rate p50: 0.3500
+- deadline-miss-rate p95: 0.2500
+- tail-ratio p99/p50: 2.8900
+
+## quic-datagram / very-poor / small
+- payload_bytes: 4096
+- closed_loop: true
+- eps p50: 66.99
+- eps p95: 67.27
+- elapsed p95: 0.5997s
+- sent_total: 0
+- dropped_total: 13
+- fallback_total: 187
+- mode-switch-count total: 50
+- effective-parity-rate p50: 0.3500
+- feedback-lag-ms p95: 39.00
+- duplication-rate p50: 0.3500
+- deadline-miss-rate p95: 0.2500
+- tail-ratio p99/p50: 2.8900
+
+## quic-datagram / very-poor / tiny
+- payload_bytes: 256
+- closed_loop: true
+- eps p50: 67.72
+- eps p95: 68.13
+- elapsed p95: 0.5919s
+- sent_total: 168
+- dropped_total: 32
+- fallback_total: 0
+- mode-switch-count total: 50
+- effective-parity-rate p50: 0.1860
+- feedback-lag-ms p95: 28.27
+- duplication-rate p50: 0.2230
+- deadline-miss-rate p95: 0.1245
+- tail-ratio p99/p50: 1.6525
+
+## quic-stream / excellent / large
+- payload_bytes: 262144
+- closed_loop: true
+- eps p50: 16311.55
+- eps p95: 16750.42
+- elapsed p95: 0.0017s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 5
+- effective-parity-rate p50: 0.0100
+- feedback-lag-ms p95: 2.00
+- duplication-rate p50: 0.1000
+- deadline-miss-rate p95: 0.0000
+- tail-ratio p99/p50: 1.1500
+
+## quic-stream / excellent / medium
+- payload_bytes: 65536
+- closed_loop: true
+- eps p50: 3996.84
+- eps p95: 29730.58
+- elapsed p95: 0.0061s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 5
+- effective-parity-rate p50: 0.0100
+- feedback-lag-ms p95: 2.00
+- duplication-rate p50: 0.1000
+- deadline-miss-rate p95: 0.0000
+- tail-ratio p99/p50: 1.1500
+
+## quic-stream / excellent / small
+- payload_bytes: 4096
+- closed_loop: true
+- eps p50: 112386.07
+- eps p95: 121273.13
+- elapsed p95: 0.0002s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 5
+- effective-parity-rate p50: 0.0100
+- feedback-lag-ms p95: 2.00
+- duplication-rate p50: 0.1000
+- deadline-miss-rate p95: 0.0000
+- tail-ratio p99/p50: 1.1500
+
+## quic-stream / excellent / tiny
+- payload_bytes: 256
+- closed_loop: true
+- eps p50: 62777.99
+- eps p95: 64205.46
+- elapsed p95: 0.0037s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 5
+- effective-parity-rate p50: 0.0100
+- feedback-lag-ms p95: 2.00
+- duplication-rate p50: 0.1000
+- deadline-miss-rate p95: 0.0000
+- tail-ratio p99/p50: 1.1500
+
+## quic-stream / good / large
+- payload_bytes: 262144
+- closed_loop: true
+- eps p50: 244.29
+- eps p95: 334.27
+- elapsed p95: 0.0833s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 5
+- effective-parity-rate p50: 0.0100
+- feedback-lag-ms p95: 3.00
+- duplication-rate p50: 0.1008
+- deadline-miss-rate p95: 0.0012
+- tail-ratio p99/p50: 1.1540
+
+## quic-stream / good / medium
+- payload_bytes: 65536
+- closed_loop: true
+- eps p50: 362.15
+- eps p95: 379.54
+- elapsed p95: 0.0568s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 5
+- effective-parity-rate p50: 0.0100
+- feedback-lag-ms p95: 3.00
+- duplication-rate p50: 0.1008
+- deadline-miss-rate p95: 0.0012
+- tail-ratio p99/p50: 1.1540
+
+## quic-stream / good / small
+- payload_bytes: 4096
+- closed_loop: true
+- eps p50: 355.22
+- eps p95: 355.98
+- elapsed p95: 0.0572s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 5
+- effective-parity-rate p50: 0.0100
+- feedback-lag-ms p95: 3.00
+- duplication-rate p50: 0.1008
+- deadline-miss-rate p95: 0.0012
+- tail-ratio p99/p50: 1.1540
+
+## quic-stream / good / tiny
+- payload_bytes: 256
+- closed_loop: true
+- eps p50: 368.11
+- eps p95: 379.43
+- elapsed p95: 0.0551s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 5
+- effective-parity-rate p50: 0.0100
+- feedback-lag-ms p95: 3.00
+- duplication-rate p50: 0.1008
+- deadline-miss-rate p95: 0.0012
+- tail-ratio p99/p50: 1.1540
+
+## quic-stream / poor / large
+- payload_bytes: 262144
+- closed_loop: true
+- eps p50: 125.81
+- eps p95: 128.73
+- elapsed p95: 0.1592s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 15
+- effective-parity-rate p50: 0.0240
+- feedback-lag-ms p95: 13.00
+- duplication-rate p50: 0.1120
+- deadline-miss-rate p95: 0.0180
+- tail-ratio p99/p50: 1.2100
+
+## quic-stream / poor / medium
+- payload_bytes: 65536
+- closed_loop: true
+- eps p50: 121.23
+- eps p95: 124.80
+- elapsed p95: 0.1660s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 15
+- effective-parity-rate p50: 0.0240
+- feedback-lag-ms p95: 13.00
+- duplication-rate p50: 0.1120
+- deadline-miss-rate p95: 0.0180
+- tail-ratio p99/p50: 1.2100
+
+## quic-stream / poor / small
+- payload_bytes: 4096
+- closed_loop: true
+- eps p50: 121.05
+- eps p95: 123.01
+- elapsed p95: 0.1668s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 15
+- effective-parity-rate p50: 0.0240
+- feedback-lag-ms p95: 13.00
+- duplication-rate p50: 0.1120
+- deadline-miss-rate p95: 0.0180
+- tail-ratio p99/p50: 1.2100
+
+## quic-stream / poor / tiny
+- payload_bytes: 256
+- closed_loop: true
+- eps p50: 119.94
+- eps p95: 122.86
+- elapsed p95: 0.1731s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 15
+- effective-parity-rate p50: 0.0240
+- feedback-lag-ms p95: 13.00
+- duplication-rate p50: 0.1120
+- deadline-miss-rate p95: 0.0180
+- tail-ratio p99/p50: 1.2100
+
+## quic-stream / very-poor / large
+- payload_bytes: 262144
+- closed_loop: true
+- eps p50: 67.42
+- eps p95: 67.87
+- elapsed p95: 0.3004s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 50
+- effective-parity-rate p50: 0.0960
+- feedback-lag-ms p95: 26.00
+- duplication-rate p50: 0.1480
+- deadline-miss-rate p95: 0.0720
+- tail-ratio p99/p50: 1.3900
+
+## quic-stream / very-poor / medium
+- payload_bytes: 65536
+- closed_loop: true
+- eps p50: 66.96
+- eps p95: 68.22
+- elapsed p95: 0.3004s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 50
+- effective-parity-rate p50: 0.0960
+- feedback-lag-ms p95: 26.00
+- duplication-rate p50: 0.1480
+- deadline-miss-rate p95: 0.0720
+- tail-ratio p99/p50: 1.3900
+
+## quic-stream / very-poor / small
+- payload_bytes: 4096
+- closed_loop: true
+- eps p50: 67.69
+- eps p95: 68.10
+- elapsed p95: 0.2989s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 50
+- effective-parity-rate p50: 0.0960
+- feedback-lag-ms p95: 26.00
+- duplication-rate p50: 0.1480
+- deadline-miss-rate p95: 0.0720
+- tail-ratio p99/p50: 1.3900
+
+## quic-stream / very-poor / tiny
+- payload_bytes: 256
+- closed_loop: true
+- eps p50: 68.03
+- eps p95: 68.32
+- elapsed p95: 0.2976s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 50
+- effective-parity-rate p50: 0.0960
+- feedback-lag-ms p95: 26.00
+- duplication-rate p50: 0.1480
+- deadline-miss-rate p95: 0.0720
+- tail-ratio p99/p50: 1.3900
+
+## sse / excellent / large
+- payload_bytes: 262144
+- closed_loop: true
+- eps p50: 10793.23
+- eps p95: 59237.32
+- elapsed p95: 0.0067s
+- sent_total: 300
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 5
+- effective-parity-rate p50: 0.0100
+- feedback-lag-ms p95: 2.00
+- duplication-rate p50: 0.1000
+- deadline-miss-rate p95: 0.0000
+- tail-ratio p99/p50: 1.1500
+
+## sse / excellent / medium
+- payload_bytes: 65536
+- closed_loop: true
+- eps p50: 135201.82
+- eps p95: 138308.52
+- elapsed p95: 0.0010s
+- sent_total: 400
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 5
+- effective-parity-rate p50: 0.0100
+- feedback-lag-ms p95: 2.00
+- duplication-rate p50: 0.1000
+- deadline-miss-rate p95: 0.0000
+- tail-ratio p99/p50: 1.1500
+
+## sse / excellent / small
+- payload_bytes: 4096
+- closed_loop: true
+- eps p50: 147465.44
+- eps p95: 173925.75
+- elapsed p95: 0.0010s
+- sent_total: 500
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 5
+- effective-parity-rate p50: 0.0100
+- feedback-lag-ms p95: 2.00
+- duplication-rate p50: 0.1000
+- deadline-miss-rate p95: 0.0000
+- tail-ratio p99/p50: 1.1500
+
+## sse / excellent / tiny
+- payload_bytes: 256
+- closed_loop: true
+- eps p50: 327347.42
+- eps p95: 331912.56
+- elapsed p95: 0.0005s
+- sent_total: 600
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 5
+- effective-parity-rate p50: 0.0100
+- feedback-lag-ms p95: 2.00
+- duplication-rate p50: 0.1000
+- deadline-miss-rate p95: 0.0000
+- tail-ratio p99/p50: 1.1500
+
+## sse / good / large
+- payload_bytes: 262144
+- closed_loop: true
+- eps p50: 352.70
+- eps p95: 355.05
+- elapsed p95: 0.1704s
+- sent_total: 300
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 5
+- effective-parity-rate p50: 0.0100
+- feedback-lag-ms p95: 3.00
+- duplication-rate p50: 0.1008
+- deadline-miss-rate p95: 0.0012
+- tail-ratio p99/p50: 1.1540
+
+## sse / good / medium
+- payload_bytes: 65536
+- closed_loop: true
+- eps p50: 353.56
+- eps p95: 355.88
+- elapsed p95: 0.2267s
+- sent_total: 400
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 5
+- effective-parity-rate p50: 0.0100
+- feedback-lag-ms p95: 3.00
+- duplication-rate p50: 0.1008
+- deadline-miss-rate p95: 0.0012
+- tail-ratio p99/p50: 1.1540
+
+## sse / good / small
+- payload_bytes: 4096
+- closed_loop: true
+- eps p50: 355.00
+- eps p95: 355.41
+- elapsed p95: 0.2830s
+- sent_total: 500
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 5
+- effective-parity-rate p50: 0.0100
+- feedback-lag-ms p95: 3.00
+- duplication-rate p50: 0.1008
+- deadline-miss-rate p95: 0.0012
+- tail-ratio p99/p50: 1.1540
+
+## sse / good / tiny
+- payload_bytes: 256
+- closed_loop: true
+- eps p50: 321.66
+- eps p95: 350.72
+- elapsed p95: 0.3833s
+- sent_total: 600
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 5
+- effective-parity-rate p50: 0.0100
+- feedback-lag-ms p95: 3.00
+- duplication-rate p50: 0.1008
+- deadline-miss-rate p95: 0.0012
+- tail-ratio p99/p50: 1.1540
+
+## sse / poor / large
+- payload_bytes: 262144
+- closed_loop: true
+- eps p50: 120.28
+- eps p95: 120.45
+- elapsed p95: 0.5021s
+- sent_total: 300
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 15
+- effective-parity-rate p50: 0.0240
+- feedback-lag-ms p95: 13.00
+- duplication-rate p50: 0.1120
+- deadline-miss-rate p95: 0.0180
+- tail-ratio p99/p50: 1.2100
+
+## sse / poor / medium
+- payload_bytes: 65536
+- closed_loop: true
+- eps p50: 120.16
+- eps p95: 120.94
+- elapsed p95: 0.6672s
+- sent_total: 400
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 15
+- effective-parity-rate p50: 0.0240
+- feedback-lag-ms p95: 13.00
+- duplication-rate p50: 0.1120
+- deadline-miss-rate p95: 0.0180
+- tail-ratio p99/p50: 1.2100
+
+## sse / poor / small
+- payload_bytes: 4096
+- closed_loop: true
+- eps p50: 120.29
+- eps p95: 120.68
+- elapsed p95: 0.8343s
+- sent_total: 500
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 15
+- effective-parity-rate p50: 0.0240
+- feedback-lag-ms p95: 13.00
+- duplication-rate p50: 0.1120
+- deadline-miss-rate p95: 0.0180
+- tail-ratio p99/p50: 1.2100
+
+## sse / poor / tiny
+- payload_bytes: 256
+- closed_loop: true
+- eps p50: 120.40
+- eps p95: 120.62
+- elapsed p95: 1.0072s
+- sent_total: 600
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 15
+- effective-parity-rate p50: 0.0240
+- feedback-lag-ms p95: 13.00
+- duplication-rate p50: 0.1120
+- deadline-miss-rate p95: 0.0180
+- tail-ratio p99/p50: 1.2100
+
+## sse / very-poor / large
+- payload_bytes: 262144
+- closed_loop: true
+- eps p50: 67.21
+- eps p95: 67.56
+- elapsed p95: 0.8969s
+- sent_total: 300
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 50
+- effective-parity-rate p50: 0.0960
+- feedback-lag-ms p95: 26.00
+- duplication-rate p50: 0.1480
+- deadline-miss-rate p95: 0.0720
+- tail-ratio p99/p50: 1.3900
+
+## sse / very-poor / medium
+- payload_bytes: 65536
+- closed_loop: true
+- eps p50: 67.13
+- eps p95: 67.25
+- elapsed p95: 1.1957s
+- sent_total: 400
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 50
+- effective-parity-rate p50: 0.0960
+- feedback-lag-ms p95: 26.00
+- duplication-rate p50: 0.1480
+- deadline-miss-rate p95: 0.0720
+- tail-ratio p99/p50: 1.3900
+
+## sse / very-poor / small
+- payload_bytes: 4096
+- closed_loop: true
+- eps p50: 67.31
+- eps p95: 67.54
+- elapsed p95: 1.4893s
+- sent_total: 500
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 50
+- effective-parity-rate p50: 0.0960
+- feedback-lag-ms p95: 26.00
+- duplication-rate p50: 0.1480
+- deadline-miss-rate p95: 0.0720
+- tail-ratio p99/p50: 1.3900
+
+## sse / very-poor / tiny
+- payload_bytes: 256
+- closed_loop: true
+- eps p50: 67.31
+- eps p95: 67.40
+- elapsed p95: 1.7865s
+- sent_total: 600
+- dropped_total: 0
+- fallback_total: 0
+- mode-switch-count total: 50
+- effective-parity-rate p50: 0.0960
+- feedback-lag-ms p95: 26.00
+- duplication-rate p50: 0.1480
+- deadline-miss-rate p95: 0.0720
+- tail-ratio p99/p50: 1.3900
+

@@ -5,7 +5,8 @@ use serde::{de::DeserializeOwned, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 pub use sct_proto::{
-    ChunkDescriptor, CompressionType, FinalAck, ManifestAck, TransferComplete, TransferManifest,
+    ChunkDescriptor, CompressionType, FinalAck, ManifestAck, ReceiverFeedbackFrame, TransferComplete,
+    TransferManifest,
 };
 
 pub fn encode<T: Serialize>(msg: &T) -> Result<Vec<u8>> {

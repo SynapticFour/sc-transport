@@ -1,0 +1,437 @@
+# Streaming Matrix Summary
+
+- repeats: 5
+- aggregated cases: 48
+
+## quic-datagram / excellent / large
+- payload_bytes: 262144
+- eps p50: 12150.67
+- eps p95: 53059.19
+- elapsed p95: 0.0036s
+- sent_total: 0
+- dropped_total: 0
+- fallback_total: 200
+
+## quic-datagram / excellent / medium
+- payload_bytes: 65536
+- eps p50: 82191.72
+- eps p95: 111888.11
+- elapsed p95: 0.0005s
+- sent_total: 0
+- dropped_total: 1
+- fallback_total: 199
+
+## quic-datagram / excellent / small
+- payload_bytes: 4096
+- eps p50: 204996.80
+- eps p95: 205831.20
+- elapsed p95: 0.0007s
+- sent_total: 0
+- dropped_total: 0
+- fallback_total: 200
+
+## quic-datagram / excellent / tiny
+- payload_bytes: 256
+- eps p50: 79234.12
+- eps p95: 84440.03
+- elapsed p95: 0.0035s
+- sent_total: 198
+- dropped_total: 0
+- fallback_total: 2
+
+## quic-datagram / good / large
+- payload_bytes: 262144
+- eps p50: 339.91
+- eps p95: 348.39
+- elapsed p95: 0.1181s
+- sent_total: 0
+- dropped_total: 1
+- fallback_total: 199
+
+## quic-datagram / good / medium
+- payload_bytes: 65536
+- eps p50: 353.33
+- eps p95: 357.30
+- elapsed p95: 0.1138s
+- sent_total: 0
+- dropped_total: 1
+- fallback_total: 199
+
+## quic-datagram / good / small
+- payload_bytes: 4096
+- eps p50: 354.70
+- eps p95: 355.42
+- elapsed p95: 0.1135s
+- sent_total: 0
+- dropped_total: 0
+- fallback_total: 200
+
+## quic-datagram / good / tiny
+- payload_bytes: 256
+- eps p50: 361.60
+- eps p95: 367.27
+- elapsed p95: 0.1140s
+- sent_total: 198
+- dropped_total: 1
+- fallback_total: 1
+
+## quic-datagram / poor / large
+- payload_bytes: 262144
+- eps p50: 119.93
+- eps p95: 121.29
+- elapsed p95: 0.3365s
+- sent_total: 0
+- dropped_total: 12
+- fallback_total: 188
+
+## quic-datagram / poor / medium
+- payload_bytes: 65536
+- eps p50: 121.08
+- eps p95: 121.59
+- elapsed p95: 0.3345s
+- sent_total: 0
+- dropped_total: 12
+- fallback_total: 188
+
+## quic-datagram / poor / small
+- payload_bytes: 4096
+- eps p50: 120.41
+- eps p95: 121.78
+- elapsed p95: 0.3349s
+- sent_total: 0
+- dropped_total: 12
+- fallback_total: 188
+
+## quic-datagram / poor / tiny
+- payload_bytes: 256
+- eps p50: 120.68
+- eps p95: 121.47
+- elapsed p95: 0.3377s
+- sent_total: 188
+- dropped_total: 9
+- fallback_total: 3
+
+## quic-datagram / very-poor / large
+- payload_bytes: 262144
+- eps p50: 67.14
+- eps p95: 67.32
+- elapsed p95: 0.5990s
+- sent_total: 0
+- dropped_total: 0
+- fallback_total: 200
+
+## quic-datagram / very-poor / medium
+- payload_bytes: 65536
+- eps p50: 66.84
+- eps p95: 67.17
+- elapsed p95: 0.6010s
+- sent_total: 0
+- dropped_total: 0
+- fallback_total: 200
+
+## quic-datagram / very-poor / small
+- payload_bytes: 4096
+- eps p50: 66.95
+- eps p95: 67.18
+- elapsed p95: 0.6002s
+- sent_total: 0
+- dropped_total: 13
+- fallback_total: 187
+
+## quic-datagram / very-poor / tiny
+- payload_bytes: 256
+- eps p50: 68.19
+- eps p95: 68.19
+- elapsed p95: 0.5891s
+- sent_total: 168
+- dropped_total: 32
+- fallback_total: 0
+
+## quic-stream / excellent / large
+- payload_bytes: 262144
+- eps p50: 13094.00
+- eps p95: 14430.89
+- elapsed p95: 0.0020s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+
+## quic-stream / excellent / medium
+- payload_bytes: 65536
+- eps p50: 44419.77
+- eps p95: 48270.24
+- elapsed p95: 0.0011s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+
+## quic-stream / excellent / small
+- payload_bytes: 4096
+- eps p50: 22240.76
+- eps p95: 81897.40
+- elapsed p95: 0.0009s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+
+## quic-stream / excellent / tiny
+- payload_bytes: 256
+- eps p50: 72300.05
+- eps p95: 75853.54
+- elapsed p95: 0.0045s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+
+## quic-stream / good / large
+- payload_bytes: 262144
+- eps p50: 261.58
+- eps p95: 317.10
+- elapsed p95: 0.0785s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+
+## quic-stream / good / medium
+- payload_bytes: 65536
+- eps p50: 360.75
+- eps p95: 367.03
+- elapsed p95: 0.0559s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+
+## quic-stream / good / small
+- payload_bytes: 4096
+- eps p50: 356.03
+- eps p95: 361.78
+- elapsed p95: 0.0567s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+
+## quic-stream / good / tiny
+- payload_bytes: 256
+- eps p50: 356.53
+- eps p95: 367.27
+- elapsed p95: 0.0575s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+
+## quic-stream / poor / large
+- payload_bytes: 262144
+- eps p50: 116.71
+- eps p95: 120.32
+- elapsed p95: 0.2261s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+
+## quic-stream / poor / medium
+- payload_bytes: 65536
+- eps p50: 122.29
+- eps p95: 122.84
+- elapsed p95: 0.1657s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+
+## quic-stream / poor / small
+- payload_bytes: 4096
+- eps p50: 119.77
+- eps p95: 122.55
+- elapsed p95: 0.1675s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+
+## quic-stream / poor / tiny
+- payload_bytes: 256
+- eps p50: 118.58
+- eps p95: 120.86
+- elapsed p95: 0.1703s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+
+## quic-stream / very-poor / large
+- payload_bytes: 262144
+- eps p50: 67.57
+- eps p95: 69.09
+- elapsed p95: 0.2974s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+
+## quic-stream / very-poor / medium
+- payload_bytes: 65536
+- eps p50: 67.64
+- eps p95: 68.46
+- elapsed p95: 0.2987s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+
+## quic-stream / very-poor / small
+- payload_bytes: 4096
+- eps p50: 67.40
+- eps p95: 68.25
+- elapsed p95: 0.2995s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+
+## quic-stream / very-poor / tiny
+- payload_bytes: 256
+- eps p50: 67.35
+- eps p95: 67.61
+- elapsed p95: 0.2977s
+- sent_total: 100
+- dropped_total: 0
+- fallback_total: 0
+
+## sse / excellent / large
+- payload_bytes: 262144
+- eps p50: 10832.60
+- eps p95: 42392.82
+- elapsed p95: 0.0059s
+- sent_total: 300
+- dropped_total: 0
+- fallback_total: 0
+
+## sse / excellent / medium
+- payload_bytes: 65536
+- eps p50: 47888.65
+- eps p95: 112116.74
+- elapsed p95: 0.0018s
+- sent_total: 400
+- dropped_total: 0
+- fallback_total: 0
+
+## sse / excellent / small
+- payload_bytes: 4096
+- eps p50: 316413.64
+- eps p95: 319488.82
+- elapsed p95: 0.0010s
+- sent_total: 500
+- dropped_total: 0
+- fallback_total: 0
+
+## sse / excellent / tiny
+- payload_bytes: 256
+- eps p50: 334029.23
+- eps p95: 337512.87
+- elapsed p95: 0.0007s
+- sent_total: 600
+- dropped_total: 0
+- fallback_total: 0
+
+## sse / good / large
+- payload_bytes: 262144
+- eps p50: 354.47
+- eps p95: 356.19
+- elapsed p95: 0.1705s
+- sent_total: 300
+- dropped_total: 0
+- fallback_total: 0
+
+## sse / good / medium
+- payload_bytes: 65536
+- eps p50: 353.86
+- eps p95: 356.29
+- elapsed p95: 0.2265s
+- sent_total: 400
+- dropped_total: 0
+- fallback_total: 0
+
+## sse / good / small
+- payload_bytes: 4096
+- eps p50: 357.15
+- eps p95: 357.24
+- elapsed p95: 0.2813s
+- sent_total: 500
+- dropped_total: 0
+- fallback_total: 0
+
+## sse / good / tiny
+- payload_bytes: 256
+- eps p50: 321.24
+- eps p95: 360.38
+- elapsed p95: 0.3830s
+- sent_total: 600
+- dropped_total: 0
+- fallback_total: 0
+
+## sse / poor / large
+- payload_bytes: 262144
+- eps p50: 120.09
+- eps p95: 120.20
+- elapsed p95: 0.5017s
+- sent_total: 300
+- dropped_total: 0
+- fallback_total: 0
+
+## sse / poor / medium
+- payload_bytes: 65536
+- eps p50: 120.07
+- eps p95: 121.04
+- elapsed p95: 0.6683s
+- sent_total: 400
+- dropped_total: 0
+- fallback_total: 0
+
+## sse / poor / small
+- payload_bytes: 4096
+- eps p50: 120.46
+- eps p95: 120.98
+- elapsed p95: 0.8332s
+- sent_total: 500
+- dropped_total: 0
+- fallback_total: 0
+
+## sse / poor / tiny
+- payload_bytes: 256
+- eps p50: 120.37
+- eps p95: 120.47
+- elapsed p95: 1.0020s
+- sent_total: 600
+- dropped_total: 0
+- fallback_total: 0
+
+## sse / very-poor / large
+- payload_bytes: 262144
+- eps p50: 66.88
+- eps p95: 67.19
+- elapsed p95: 0.8992s
+- sent_total: 300
+- dropped_total: 0
+- fallback_total: 0
+
+## sse / very-poor / medium
+- payload_bytes: 65536
+- eps p50: 67.24
+- eps p95: 67.37
+- elapsed p95: 1.1983s
+- sent_total: 400
+- dropped_total: 0
+- fallback_total: 0
+
+## sse / very-poor / small
+- payload_bytes: 4096
+- eps p50: 67.37
+- eps p95: 67.58
+- elapsed p95: 1.4884s
+- sent_total: 500
+- dropped_total: 0
+- fallback_total: 0
+
+## sse / very-poor / tiny
+- payload_bytes: 256
+- eps p50: 67.13
+- eps p95: 67.36
+- elapsed p95: 1.7922s
+- sent_total: 600
+- dropped_total: 0
+- fallback_total: 0
+

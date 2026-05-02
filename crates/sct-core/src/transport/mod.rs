@@ -55,6 +55,7 @@ pub struct SctEndpoint {
     endpoint: Endpoint,
 }
 
+#[derive(Clone)]
 pub struct SctConnection {
     connection: quinn::Connection,
 }

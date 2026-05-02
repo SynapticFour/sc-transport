@@ -51,3 +51,17 @@ pub struct FinalAck {
 pub struct TransferComplete {
     pub transfer_id: [u8; 16],
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReceiverFeedbackFrame {
+    pub transfer_id: [u8; 16],
+    pub decode_delay_ms: u32,
+    pub buffer_occupancy: f32,
+    pub cpu_load: f32,
+    pub loss_hint: f32,
+    pub rtt_ms: u32,
+    #[serde(default)]
+    pub completed_block_id: Option<u64>,
+    #[serde(default)]
+    pub block_reconstructable: bool,
+}

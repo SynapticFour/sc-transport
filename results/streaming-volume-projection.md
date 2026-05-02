@@ -1,0 +1,53 @@
+# Streaming Volume Projection
+
+- source repeats: 5
+- targets GiB: 50.0, 100.0
+
+- quic-datagram/excellent/large 50GiB -> 0.1 min (0.00 h), fallback=200, dropped=0
+- quic-datagram/excellent/medium 50GiB -> 0.3 min (0.01 h), fallback=199, dropped=1
+- quic-datagram/excellent/large 100GiB -> 0.3 min (0.00 h), fallback=200, dropped=0
+- quic-datagram/excellent/medium 100GiB -> 0.7 min (0.01 h), fallback=199, dropped=1
+- quic-datagram/good/large 50GiB -> 9.8 min (0.16 h), fallback=199, dropped=1
+- quic-datagram/good/medium 50GiB -> 38.9 min (0.65 h), fallback=199, dropped=1
+- quic-datagram/good/large 100GiB -> 19.5 min (0.33 h), fallback=199, dropped=1
+- quic-datagram/good/medium 100GiB -> 77.8 min (1.30 h), fallback=199, dropped=1
+- quic-datagram/poor/large 50GiB -> 28.7 min (0.48 h), fallback=188, dropped=12
+- quic-datagram/poor/medium 50GiB -> 113.4 min (1.89 h), fallback=188, dropped=12
+- quic-datagram/poor/large 100GiB -> 57.5 min (0.96 h), fallback=188, dropped=12
+- quic-datagram/poor/medium 100GiB -> 226.7 min (3.78 h), fallback=188, dropped=12
+- quic-datagram/very-poor/large 50GiB -> 51.3 min (0.86 h), fallback=200, dropped=0
+- quic-datagram/very-poor/medium 50GiB -> 204.7 min (3.41 h), fallback=200, dropped=0
+- quic-datagram/very-poor/large 100GiB -> 102.7 min (1.71 h), fallback=200, dropped=0
+- quic-datagram/very-poor/medium 100GiB -> 409.5 min (6.82 h), fallback=200, dropped=0
+- quic-stream/excellent/large 50GiB -> 0.3 min (0.00 h), fallback=0, dropped=0
+- quic-stream/excellent/medium 50GiB -> 6.3 min (0.11 h), fallback=0, dropped=0
+- quic-stream/excellent/large 100GiB -> 0.6 min (0.01 h), fallback=0, dropped=0
+- quic-stream/excellent/medium 100GiB -> 12.6 min (0.21 h), fallback=0, dropped=0
+- quic-stream/good/large 50GiB -> 14.0 min (0.23 h), fallback=0, dropped=0
+- quic-stream/good/medium 50GiB -> 37.0 min (0.62 h), fallback=0, dropped=0
+- quic-stream/good/large 100GiB -> 28.0 min (0.47 h), fallback=0, dropped=0
+- quic-stream/good/medium 100GiB -> 73.9 min (1.23 h), fallback=0, dropped=0
+- quic-stream/poor/large 50GiB -> 27.3 min (0.46 h), fallback=0, dropped=0
+- quic-stream/poor/medium 50GiB -> 110.8 min (1.85 h), fallback=0, dropped=0
+- quic-stream/poor/large 100GiB -> 54.7 min (0.91 h), fallback=0, dropped=0
+- quic-stream/poor/medium 100GiB -> 221.7 min (3.69 h), fallback=0, dropped=0
+- quic-stream/very-poor/large 50GiB -> 51.1 min (0.85 h), fallback=0, dropped=0
+- quic-stream/very-poor/medium 50GiB -> 204.1 min (3.40 h), fallback=0, dropped=0
+- quic-stream/very-poor/large 100GiB -> 102.2 min (1.70 h), fallback=0, dropped=0
+- quic-stream/very-poor/medium 100GiB -> 408.1 min (6.80 h), fallback=0, dropped=0
+- sse/excellent/medium 50GiB -> 0.2 min (0.00 h), fallback=0, dropped=0
+- sse/excellent/large 50GiB -> 0.5 min (0.01 h), fallback=0, dropped=0
+- sse/excellent/medium 100GiB -> 0.4 min (0.01 h), fallback=0, dropped=0
+- sse/excellent/large 100GiB -> 1.0 min (0.02 h), fallback=0, dropped=0
+- sse/good/large 50GiB -> 9.9 min (0.16 h), fallback=0, dropped=0
+- sse/good/medium 50GiB -> 38.9 min (0.65 h), fallback=0, dropped=0
+- sse/good/large 100GiB -> 19.7 min (0.33 h), fallback=0, dropped=0
+- sse/good/medium 100GiB -> 77.9 min (1.30 h), fallback=0, dropped=0
+- sse/poor/large 50GiB -> 28.6 min (0.48 h), fallback=0, dropped=0
+- sse/poor/medium 50GiB -> 115.0 min (1.92 h), fallback=0, dropped=0
+- sse/poor/large 100GiB -> 57.1 min (0.95 h), fallback=0, dropped=0
+- sse/poor/medium 100GiB -> 230.0 min (3.83 h), fallback=0, dropped=0
+- sse/very-poor/large 50GiB -> 51.2 min (0.85 h), fallback=0, dropped=0
+- sse/very-poor/medium 50GiB -> 204.4 min (3.41 h), fallback=0, dropped=0
+- sse/very-poor/large 100GiB -> 102.4 min (1.71 h), fallback=0, dropped=0
+- sse/very-poor/medium 100GiB -> 408.9 min (6.81 h), fallback=0, dropped=0

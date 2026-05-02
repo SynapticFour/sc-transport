@@ -1,0 +1,53 @@
+# Streaming Matrix Comparison
+
+- before repeats: 2
+- after repeats: 1
+
+- quic-datagram/excellent/large: p50 35215.14 -> 34037.74 (-3.34%), fallback 80 -> 40, dropped 0 -> 0
+- quic-datagram/excellent/medium: p50 39233.30 -> 37841.48 (-3.55%), fallback 79 -> 39, dropped 1 -> 1
+- quic-datagram/excellent/small: p50 26163.03 -> 57132.65 (+118.37%), fallback 80 -> 40, dropped 0 -> 0
+- quic-datagram/excellent/tiny: p50 11348.86 -> 11130.43 (-1.92%), fallback 0 -> 0, dropped 0 -> 0
+- quic-datagram/good/large: p50 347.94 -> 359.70 (+3.38%), fallback 79 -> 39, dropped 1 -> 1
+- quic-datagram/good/medium: p50 355.17 -> 250.90 (-29.36%), fallback 79 -> 40, dropped 1 -> 0
+- quic-datagram/good/small: p50 352.70 -> 352.95 (+0.07%), fallback 80 -> 40, dropped 0 -> 0
+- quic-datagram/good/tiny: p50 364.32 -> 363.29 (-0.28%), fallback 0 -> 0, dropped 1 -> 1
+- quic-datagram/poor/large: p50 119.41 -> 120.50 (+0.91%), fallback 75 -> 38, dropped 5 -> 2
+- quic-datagram/poor/medium: p50 119.53 -> 120.84 (+1.10%), fallback 76 -> 38, dropped 4 -> 2
+- quic-datagram/poor/small: p50 120.41 -> 120.14 (-0.23%), fallback 75 -> 37, dropped 5 -> 3
+- quic-datagram/poor/tiny: p50 118.68 -> 119.16 (+0.40%), fallback 0 -> 0, dropped 5 -> 2
+- quic-datagram/very-poor/large: p50 66.97 -> 66.86 (-0.17%), fallback 80 -> 40, dropped 0 -> 0
+- quic-datagram/very-poor/medium: p50 67.46 -> 67.34 (-0.17%), fallback 80 -> 40, dropped 0 -> 0
+- quic-datagram/very-poor/small: p50 67.10 -> 67.32 (+0.33%), fallback 75 -> 38, dropped 5 -> 2
+- quic-datagram/very-poor/tiny: p50 67.54 -> 67.84 (+0.45%), fallback 0 -> 0, dropped 13 -> 7
+- quic-stream/excellent/large: p50 12273.39 -> 8995.16 (-26.71%), fallback 0 -> 0, dropped 0 -> 0
+- quic-stream/excellent/medium: p50 4263.64 -> 31570.64 (+640.46%), fallback 0 -> 0, dropped 0 -> 0
+- quic-stream/excellent/small: p50 72617.16 -> 78947.47 (+8.72%), fallback 0 -> 0, dropped 0 -> 0
+- quic-stream/excellent/tiny: p50 4154.94 -> 5756.50 (+38.55%), fallback 0 -> 0, dropped 0 -> 0
+- quic-stream/good/large: p50 269.39 -> 323.25 (+20.00%), fallback 0 -> 0, dropped 0 -> 0
+- quic-stream/good/medium: p50 365.75 -> 339.46 (-7.19%), fallback 0 -> 0, dropped 0 -> 0
+- quic-stream/good/small: p50 353.43 -> 346.58 (-1.94%), fallback 0 -> 0, dropped 0 -> 0
+- quic-stream/good/tiny: p50 348.25 -> 348.19 (-0.02%), fallback 0 -> 0, dropped 0 -> 0
+- quic-stream/poor/large: p50 125.84 -> 123.69 (-1.71%), fallback 0 -> 0, dropped 0 -> 0
+- quic-stream/poor/medium: p50 120.32 -> 122.38 (+1.72%), fallback 0 -> 0, dropped 0 -> 0
+- quic-stream/poor/small: p50 121.03 -> 124.30 (+2.70%), fallback 0 -> 0, dropped 0 -> 0
+- quic-stream/poor/tiny: p50 121.69 -> 122.07 (+0.31%), fallback 0 -> 0, dropped 0 -> 0
+- quic-stream/very-poor/large: p50 67.10 -> 67.38 (+0.42%), fallback 0 -> 0, dropped 0 -> 0
+- quic-stream/very-poor/medium: p50 68.05 -> 68.08 (+0.04%), fallback 0 -> 0, dropped 0 -> 0
+- quic-stream/very-poor/small: p50 67.91 -> 68.24 (+0.49%), fallback 0 -> 0, dropped 0 -> 0
+- quic-stream/very-poor/tiny: p50 67.41 -> 69.19 (+2.65%), fallback 0 -> 0, dropped 0 -> 0
+- sse/excellent/large: p50 10043.38 -> 58569.90 (+483.17%), fallback 0 -> 0, dropped 0 -> 0
+- sse/excellent/medium: p50 118015.86 -> 116089.24 (-1.63%), fallback 0 -> 0, dropped 0 -> 0
+- sse/excellent/small: p50 103114.89 -> 101129.21 (-1.93%), fallback 0 -> 0, dropped 0 -> 0
+- sse/excellent/tiny: p50 248147.17 -> 264511.19 (+6.59%), fallback 0 -> 0, dropped 0 -> 0
+- sse/good/large: p50 353.03 -> 351.65 (-0.39%), fallback 0 -> 0, dropped 0 -> 0
+- sse/good/medium: p50 352.85 -> 354.50 (+0.47%), fallback 0 -> 0, dropped 0 -> 0
+- sse/good/small: p50 354.60 -> 355.40 (+0.23%), fallback 0 -> 0, dropped 0 -> 0
+- sse/good/tiny: p50 321.56 -> 351.74 (+9.38%), fallback 0 -> 0, dropped 0 -> 0
+- sse/poor/large: p50 119.90 -> 120.01 (+0.09%), fallback 0 -> 0, dropped 0 -> 0
+- sse/poor/medium: p50 119.70 -> 120.35 (+0.54%), fallback 0 -> 0, dropped 0 -> 0
+- sse/poor/small: p50 120.07 -> 120.38 (+0.26%), fallback 0 -> 0, dropped 0 -> 0
+- sse/poor/tiny: p50 120.20 -> 120.21 (+0.01%), fallback 0 -> 0, dropped 0 -> 0
+- sse/very-poor/large: p50 66.97 -> 67.30 (+0.50%), fallback 0 -> 0, dropped 0 -> 0
+- sse/very-poor/medium: p50 67.17 -> 67.40 (+0.34%), fallback 0 -> 0, dropped 0 -> 0
+- sse/very-poor/small: p50 67.20 -> 67.16 (-0.06%), fallback 0 -> 0, dropped 0 -> 0
+- sse/very-poor/tiny: p50 67.42 -> 67.37 (-0.06%), fallback 0 -> 0, dropped 0 -> 0

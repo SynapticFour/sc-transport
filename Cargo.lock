@@ -1748,11 +1748,15 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "futures",
+ "quinn",
+ "rcgen",
+ "rustls",
  "sc-transport-core",
  "sc-transport-datagrams",
  "sc-transport-probe",
  "sc-transport-quic",
  "sc-transport-sse",
+ "serde",
  "serde_json",
  "tokio",
 ]
@@ -1810,6 +1814,7 @@ dependencies = [
  "rcgen",
  "rmp-serde",
  "rustls",
+ "rustls-platform-verifier",
  "sc-transport-core",
  "sc-transport-sse",
  "serde",

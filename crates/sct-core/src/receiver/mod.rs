@@ -1,7 +1,7 @@
 use crate::compression::maybe_decompress;
 use crate::protocol::{
-    decode, read_framed, write_framed, ChunkDescriptor, FinalAck, ManifestAck, TransferComplete,
-    TransferManifest,
+    decode, read_framed, write_framed, ChunkDescriptor, FinalAck, ManifestAck, ReceiverFeedbackFrame,
+    TransferComplete, TransferManifest,
 };
 use crate::transport::SctEndpoint;
 use anyhow::Result;
@@ -97,6 +97,21 @@ impl FileReceiver {
         )
         .await?;
 
+        let feedback_enabled = true;
+        let feedback_every = std::env::var("SC_SCT_FEEDBACK_EVERY_CHUNKS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(8)
+            .max(1);
+        let mut feedback_stream = if feedback_enabled {
+            match conn.open_control_stream().await {
+                Ok((send, _recv)) => Some(send),
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
+
         let mut out = OpenOptions::new()
             .create(true)
             .truncate(!self.config.resume_partial)
@@ -137,6 +152,22 @@ impl FileReceiver {
             out.seek(SeekFrom::Start(desc.offset)).await?;
             out.write_all(&chunk).await?;
             received_chunks.insert(desc.index);
+            if let Some(ref mut fb_send) = feedback_stream {
+                if received_chunks.len() as u64 % feedback_every == 0 {
+                    let frame = ReceiverFeedbackFrame {
+                        transfer_id: manifest.transfer_id,
+                        decode_delay_ms: if manifest.chunk_size > (1024 * 1024) { 20 } else { 8 },
+                        buffer_occupancy: ((received_chunks.len() as f32) / (manifest.num_chunks.max(1) as f32))
+                            .clamp(0.0, 1.0),
+                        cpu_load: 0.45,
+                        loss_hint: 0.02,
+                        rtt_ms: 25,
+                        completed_block_id: Some(desc.index / 4),
+                        block_reconstructable: true,
+                    };
+                    let _ = write_framed(fb_send, &frame).await;
+                }
+            }
             if self.config.resume_partial {
                 let state = ResumeState {
                     received_chunks: received_chunks.iter().copied().collect(),

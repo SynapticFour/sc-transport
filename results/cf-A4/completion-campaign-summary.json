@@ -1,0 +1,8 @@
+{
+  "completion_first": false,
+  "p50_completion_ms": 31.0,
+  "p95_completion_ms": 31.0,
+  "p99_completion_ms": 31.0,
+  "straggler_count": 97,
+  "canceled_redundant_sends": 0
+}

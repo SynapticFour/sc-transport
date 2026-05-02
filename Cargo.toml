@@ -54,8 +54,12 @@ sc-transport-probe = { path = "crates/sc-transport-probe", optional = true }
 [dev-dependencies]
 criterion = { workspace = true }
 futures = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
+quinn = "0.11"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rcgen = "0.14"
 
 [[test]]
 name = "sse_basic"
@@ -104,6 +108,11 @@ required-features = ["transport-quic", "transport-datagrams"]
 [[test]]
 name = "wan_simulation"
 path = "tests/integration/wan_simulation.rs"
+required-features = ["transport-quic", "transport-datagrams"]
+
+[[test]]
+name = "streaming_matrix"
+path = "tests/integration/streaming_matrix.rs"
 required-features = ["transport-quic", "transport-datagrams"]
 
 [[bench]]

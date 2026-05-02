@@ -1,3 +1,4 @@
+pub mod adaptive;
 pub mod compression;
 pub mod congestion;
 pub mod metrics;

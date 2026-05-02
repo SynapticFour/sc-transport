@@ -173,3 +173,105 @@ For CI on Linux runners, prefer `sct-bench netem-matrix`.
 For CI on macOS runners:
 - either run unshaped synthetic benchmarks only, or
 - use privileged runners and execute the `pfctl`/`dnctl` setup before transfer tests.
+
+## Streaming-only matrix (no large files)
+
+For low-disk environments, run the streaming matrix integration test:
+
+```bash
+SC_TRANSPORT_ARTIFACT_DIR=results \
+SC_STREAM_MATRIX_REPEATS=2 \
+cargo test --test streaming_matrix --features "transport-quic transport-datagrams"
+```
+
+Closed-loop A/B (same repeats for fair comparison):
+
+```bash
+# A: closed-loop off
+SC_TRANSPORT_ARTIFACT_DIR=results/A \
+SC_STREAM_MATRIX_REPEATS=5 \
+SC_STREAM_MATRIX_CLOSED_LOOP=0 \
+cargo test --test streaming_matrix --features "transport-quic transport-datagrams"
+
+# B: closed-loop on
+SC_TRANSPORT_ARTIFACT_DIR=results/B \
+SC_STREAM_MATRIX_REPEATS=5 \
+SC_STREAM_MATRIX_CLOSED_LOOP=1 \
+cargo test --test streaming_matrix --features "transport-quic transport-datagrams"
+```
+
+The summary now also includes:
+
+- `mode-switch-count total`
+- `effective-parity-rate p50`
+- `feedback-lag-ms p95`
+- `duplication-rate p50`
+- `deadline-miss-rate p95`
+- `tail-ratio p99/p50`
+
+Produced artifacts:
+
+- `results/streaming-matrix.json` (raw per-run cases)
+- `results/streaming-matrix-summary.json` (p50/p95 aggregated summary)
+
+Before/after comparison:
+
+```bash
+python3 scripts/compare_streaming_matrix.py \
+  --before results/streaming-matrix-summary-before.json \
+  --after results/streaming-matrix-summary.json \
+  --out-md results/streaming-matrix-compare.md \
+  --out-json results/streaming-matrix-compare.json
+```
+
+Tip: keep the same `SC_STREAM_MATRIX_REPEATS` value for before and after runs to reduce comparison noise.
+
+## Competitive baseline matrix (free alternatives)
+
+Generate a fair side-by-side matrix against free baseline transports:
+
+- `baseline-tcp` (raw TCP streaming socket)
+- `baseline-udp` (raw UDP datagram socket)
+- `sse`, `quic-stream`, `quic-datagram` (from `sc-transport`)
+
+Run:
+
+```bash
+python3 scripts/competitive_baseline_matrix.py \
+  --sc-summary results/streaming-matrix-summary-B.json \
+  --repeats 5 \
+  --out-json results/competitive-baseline-matrix.json \
+  --out-md results/competitive-baseline-matrix.md
+```
+
+Notes:
+
+- This matrix is streaming-only and disk-light.
+- For meaningful optimization decisions, focus primarily on `good`, `poor`, and `very-poor` profiles.
+- `excellent` on localhost can be noisy due to scheduler/runtime burst effects.
+
+## Completion-first campaign (sct-core)
+
+Run A/B for block completion KPIs:
+
+```bash
+# A: completion-first off
+SC_TRANSPORT_ARTIFACT_DIR=results/cf-A \
+SC_SCT_COMPLETION_FIRST=0 \
+cargo test -p sct-core --test completion_campaign completion_campaign_metrics
+
+# B: completion-first on
+SC_TRANSPORT_ARTIFACT_DIR=results/cf-B \
+SC_SCT_COMPLETION_FIRST=1 \
+cargo test -p sct-core --test completion_campaign completion_campaign_metrics
+```
+
+Compare:
+
+```bash
+python3 scripts/compare_completion_campaign.py \
+  --before results/cf-A/completion-campaign-summary.json \
+  --after results/cf-B/completion-campaign-summary.json \
+  --out-json results/completion-campaign-compare.json \
+  --out-md results/completion-campaign-compare.md
+```
