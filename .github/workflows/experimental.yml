@@ -10,14 +10,14 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test -p sc-transport-datagrams --features quic-datagrams --test datagram_delivery_no_loss
       - run: cargo test -p sc-transport-datagrams --features quic-datagrams --test datagram_fallback_trigger
       - run: |
           mkdir -p artifacts
           echo "{\"status\":\"completed\",\"suite\":\"datagram-tests\"}" > artifacts/datagram-tests.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: datagram-test-results
           path: artifacts/datagram-tests.json
@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo bench --features transport-datagrams --bench packet_loss -- --quick
       - run: |
@@ -61,7 +61,7 @@ jobs:
           else
             echo "No regression issue needed."
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: datagram-benchmark-results
           path: |
