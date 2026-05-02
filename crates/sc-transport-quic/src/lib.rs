@@ -517,7 +517,7 @@ impl QuicStreamTransport {
                 match stream.write_all(&framed).await {
                     Ok(()) => {
                         let writes = self.uni_writes.fetch_add(1, Ordering::Relaxed) + 1;
-                        if writes % flush_every == 0 {
+                        if writes.is_multiple_of(flush_every) {
                             let _ = stream.flush().await;
                         }
                         return Ok(());

@@ -153,7 +153,7 @@ impl FileReceiver {
             out.write_all(&chunk).await?;
             received_chunks.insert(desc.index);
             if let Some(ref mut fb_send) = feedback_stream {
-                if received_chunks.len() as u64 % feedback_every == 0 {
+                if (received_chunks.len() as u64).is_multiple_of(feedback_every) {
                     let frame = ReceiverFeedbackFrame {
                         transfer_id: manifest.transfer_id,
                         decode_delay_ms: if manifest.chunk_size > (1024 * 1024) { 20 } else { 8 },

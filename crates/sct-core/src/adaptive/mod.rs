@@ -730,7 +730,7 @@ impl AutopilotRuntime {
         let missing = block.required_shards.saturating_sub(block.sent_shards + block.in_flight);
         let extra = if self.completion_first_enabled { 1 } else { 0 };
         SchedulingDecision {
-            additional_shards: (missing + extra).max(1).min(3),
+            additional_shards: (missing + extra).clamp(1, 3),
             duplicate: false,
             panic_mode: false,
         }
@@ -790,7 +790,7 @@ impl AutopilotRuntime {
         let snapshot = self.summarize_blocks(&snapshot_packets, &completed, canceled.max(stragglers.len() / 4));
         let mut out = Vec::new();
         loop {
-            blocks.sort_by(|a, b| self.estimate_completion_time(b).cmp(&self.estimate_completion_time(a)));
+            blocks.sort_by_key(|b| std::cmp::Reverse(self.estimate_completion_time(b)));
             let straggler_ids = self.detect_stragglers(&blocks);
             let next_idx = blocks.iter().position(|b| {
                 !b.is_complete() && by_block.get(&b.id).map(|s| !s.is_empty()).unwrap_or(false)
