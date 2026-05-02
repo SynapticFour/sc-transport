@@ -325,7 +325,8 @@ fn summarize(results: &[CaseResult], repeats: u32) -> MatrixSummary {
             let mut parity_rates: Vec<f64> = rows.iter().map(|r| r.effective_parity_rate).collect();
             let mut feedback_lag: Vec<f64> = rows.iter().map(|r| r.feedback_lag_ms).collect();
             let mut duplication_rates: Vec<f64> = rows.iter().map(|r| r.duplication_rate).collect();
-            let mut deadline_miss_rates: Vec<f64> = rows.iter().map(|r| r.deadline_miss_rate).collect();
+            let mut deadline_miss_rates: Vec<f64> =
+                rows.iter().map(|r| r.deadline_miss_rate).collect();
             let mut tail_ratios: Vec<f64> = rows.iter().map(|r| r.tail_ratio_p99_p50).collect();
             let p50 = percentile(&mut eps, 0.50);
             let p95_eps = percentile(&mut eps, 0.95);
@@ -462,9 +463,7 @@ async fn spawn_datagram_sink_server() -> SocketAddr {
                 Ok(c) => c,
                 Err(_) => continue,
             };
-            tokio::spawn(async move {
-                while conn.read_datagram().await.is_ok() {}
-            });
+            tokio::spawn(async move { while conn.read_datagram().await.is_ok() {} });
         }
     });
     addr
@@ -512,5 +511,7 @@ async fn streaming_transport_matrix_without_files() {
         results.len(),
         (quality_profiles().len() * payload_profiles().len() * 3) * repeats as usize
     );
-    assert!(results.iter().any(|r| r.transport == "quic-datagram" && r.fallback > 0));
+    assert!(results
+        .iter()
+        .any(|r| r.transport == "quic-datagram" && r.fallback > 0));
 }

@@ -1,7 +1,7 @@
 use crate::compression::maybe_decompress;
 use crate::protocol::{
-    decode, read_framed, write_framed, ChunkDescriptor, FinalAck, ManifestAck, ReceiverFeedbackFrame,
-    TransferComplete, TransferManifest,
+    decode, read_framed, write_framed, ChunkDescriptor, FinalAck, ManifestAck,
+    ReceiverFeedbackFrame, TransferComplete, TransferManifest,
 };
 use crate::transport::SctEndpoint;
 use anyhow::Result;
@@ -156,8 +156,13 @@ impl FileReceiver {
                 if (received_chunks.len() as u64).is_multiple_of(feedback_every) {
                     let frame = ReceiverFeedbackFrame {
                         transfer_id: manifest.transfer_id,
-                        decode_delay_ms: if manifest.chunk_size > (1024 * 1024) { 20 } else { 8 },
-                        buffer_occupancy: ((received_chunks.len() as f32) / (manifest.num_chunks.max(1) as f32))
+                        decode_delay_ms: if manifest.chunk_size > (1024 * 1024) {
+                            20
+                        } else {
+                            8
+                        },
+                        buffer_occupancy: ((received_chunks.len() as f32)
+                            / (manifest.num_chunks.max(1) as f32))
                             .clamp(0.0, 1.0),
                         cpu_load: 0.45,
                         loss_hint: 0.02,

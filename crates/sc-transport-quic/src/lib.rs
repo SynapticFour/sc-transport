@@ -13,9 +13,9 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(feature = "quic-streams")]
 use std::sync::Arc;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 #[cfg(feature = "quic-streams")]
 use tokio::sync::Mutex;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 pub const LENGTH_PREFIX_BYTES: usize = 4;
 const BATCH_MAGIC: &[u8; 4] = b"SCB1";
@@ -127,23 +127,27 @@ impl QuicStreamTransport {
 
     /// Frame a batch payload: magic + count + repeated (len + msgpack event).
     pub fn frame_event_batch(events: &[TelemetryEvent]) -> Result<Vec<u8>, TransportError> {
-        let count = u32::try_from(events.len())
-            .map_err(|_| TransportError::Unavailable("too many events for batch frame".to_string()))?;
+        let count = u32::try_from(events.len()).map_err(|_| {
+            TransportError::Unavailable("too many events for batch frame".to_string())
+        })?;
         let mut payload = Vec::new();
         payload.extend_from_slice(BATCH_MAGIC);
         payload.extend_from_slice(&count.to_be_bytes());
         for event in events {
-            let encoded =
-                rmp_serde::to_vec_named(event).map_err(|e| TransportError::Serialization(e.to_string()))?;
+            let encoded = rmp_serde::to_vec_named(event)
+                .map_err(|e| TransportError::Serialization(e.to_string()))?;
             let len = u32::try_from(encoded.len()).map_err(|_| {
-                TransportError::Unavailable("batched event payload exceeds u32 frame length".to_string())
+                TransportError::Unavailable(
+                    "batched event payload exceeds u32 frame length".to_string(),
+                )
             })?;
             payload.extend_from_slice(&len.to_be_bytes());
             payload.extend_from_slice(&encoded);
         }
         let mut out = Vec::with_capacity(LENGTH_PREFIX_BYTES + payload.len());
-        let payload_len = u32::try_from(payload.len())
-            .map_err(|_| TransportError::Unavailable("batch payload exceeds u32 frame length".to_string()))?;
+        let payload_len = u32::try_from(payload.len()).map_err(|_| {
+            TransportError::Unavailable("batch payload exceeds u32 frame length".to_string())
+        })?;
         out.extend_from_slice(&payload_len.to_be_bytes());
         out.extend_from_slice(&payload);
         Ok(out)
@@ -156,7 +160,9 @@ impl QuicStreamTransport {
         let declared_len = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]) as usize;
         let payload = &buf[LENGTH_PREFIX_BYTES..];
         if payload.len() != declared_len {
-            return Err(TransportError::Unavailable("frame length mismatch".to_string()));
+            return Err(TransportError::Unavailable(
+                "frame length mismatch".to_string(),
+            ));
         }
         if payload.len() < 8 || &payload[..4] != BATCH_MAGIC {
             return Ok(vec![Self::parse_framed_event(buf)?]);
@@ -166,7 +172,9 @@ impl QuicStreamTransport {
         let mut out = Vec::with_capacity(count);
         for _ in 0..count {
             if idx + 4 > payload.len() {
-                return Err(TransportError::Unavailable("invalid batch frame length header".to_string()));
+                return Err(TransportError::Unavailable(
+                    "invalid batch frame length header".to_string(),
+                ));
             }
             let len = u32::from_be_bytes([
                 payload[idx],
@@ -176,7 +184,9 @@ impl QuicStreamTransport {
             ]) as usize;
             idx += 4;
             if idx + len > payload.len() {
-                return Err(TransportError::Unavailable("invalid batch frame payload boundary".to_string()));
+                return Err(TransportError::Unavailable(
+                    "invalid batch frame payload boundary".to_string(),
+                ));
             }
             let event = rmp_serde::from_slice::<TelemetryEvent>(&payload[idx..idx + len])
                 .map_err(|e| TransportError::Serialization(e.to_string()))?;
@@ -464,7 +474,9 @@ impl QuicStreamTransport {
             .and_then(|v| v.parse::<usize>().ok())
             .filter(|v| *v > 1)
             .unwrap_or(1);
-        let framed = if coalesce_n > 1 && matches!(event.event_type, sc_transport_core::EventType::Progress) {
+        let framed = if coalesce_n > 1
+            && matches!(event.event_type, sc_transport_core::EventType::Progress)
+        {
             let mut pending = self.pending_events.lock().await;
             pending.push(event.clone());
             if pending.len() < coalesce_n {
@@ -702,9 +714,10 @@ mod tests {
             .send_event(run_id, event(run_id, EventType::Progress, 2))
             .await
             .expect("send");
-        assert!(
-            matches!(status, DeliveryStatus::Sent | DeliveryStatus::Delivered | DeliveryStatus::FellBack { .. })
-        );
+        assert!(matches!(
+            status,
+            DeliveryStatus::Sent | DeliveryStatus::Delivered | DeliveryStatus::FellBack { .. }
+        ));
         let got = stream.next().await.expect("event").expect("ok");
         assert_eq!(got.run_id, run_id);
     }

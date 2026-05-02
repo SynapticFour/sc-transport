@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc;
@@ -135,9 +135,10 @@ impl QuicStreamPath {
         self.stats
             .bw_kbps
             .store((bandwidth_bps / 1000.0).max(1.0) as u64, Ordering::Relaxed);
-        self.stats
-            .loss_per_mille
-            .store((loss_rate.clamp(0.0, 1.0) * 1000.0) as u64, Ordering::Relaxed);
+        self.stats.loss_per_mille.store(
+            (loss_rate.clamp(0.0, 1.0) * 1000.0) as u64,
+            Ordering::Relaxed,
+        );
     }
 }
 
@@ -183,9 +184,10 @@ impl QuicDatagramPath {
         self.stats
             .bw_kbps
             .store((bandwidth_bps / 1000.0).max(1.0) as u64, Ordering::Relaxed);
-        self.stats
-            .loss_per_mille
-            .store((loss_rate.clamp(0.0, 1.0) * 1000.0) as u64, Ordering::Relaxed);
+        self.stats.loss_per_mille.store(
+            (loss_rate.clamp(0.0, 1.0) * 1000.0) as u64,
+            Ordering::Relaxed,
+        );
     }
 }
 
@@ -269,7 +271,11 @@ impl MultiPathScheduler {
         scored.sort_by(|a, b| {
             a.1.expected_delivery_time
                 .cmp(&b.1.expected_delivery_time)
-                .then_with(|| b.1.bandwidth.partial_cmp(&a.1.bandwidth).unwrap_or(std::cmp::Ordering::Equal))
+                .then_with(|| {
+                    b.1.bandwidth
+                        .partial_cmp(&a.1.bandwidth)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
         });
         if let Some((best_idx, _, _)) = scored.first().cloned() {
             self.paths[best_idx].send(packet.clone());
@@ -280,7 +286,8 @@ impl MultiPathScheduler {
         } else {
             0.0
         };
-        let mut speculative_limit = ((self.speculative_ratio + 0.15 * headroom_boost) * 100.0) as usize;
+        let mut speculative_limit =
+            ((self.speculative_ratio + 0.15 * headroom_boost) * 100.0) as usize;
         speculative_limit = speculative_limit.clamp(10, 20);
 
         let best_risk = scored.first().map(|s| s.2).unwrap_or(0.0);
@@ -288,10 +295,12 @@ impl MultiPathScheduler {
             .first()
             .map(|s| s.1.expected_delivery_time)
             .unwrap_or(Duration::from_millis(5));
-        let low_risk_fast_path =
-            best_risk < 0.05 && best_expected < Duration::from_millis(8) && packet.meta.size >= 128 * 1024;
+        let low_risk_fast_path = best_risk < 0.05
+            && best_expected < Duration::from_millis(8)
+            && packet.meta.size >= 128 * 1024;
         let fec_sufficient = fec_parity_ratio > 0.28
-            && (self.known_reconstructable.contains(&packet.fec_group) || packet.meta.size >= 128 * 1024);
+            && (self.known_reconstructable.contains(&packet.fec_group)
+                || packet.meta.size >= 128 * 1024);
         let high_fec_large_payload = fec_parity_ratio > 0.24 && packet.meta.size >= 128 * 1024;
         let tail_pressure_high = tail_penalty > 0.0035;
         if tail_pressure_high {
@@ -299,7 +308,10 @@ impl MultiPathScheduler {
         }
         let is_medium = (64 * 1024..128 * 1024).contains(&packet.meta.size);
         let is_large = packet.meta.size >= 128 * 1024;
-        let best_loss = scored.first().map(|s| s.1.loss_probability).unwrap_or(best_risk);
+        let best_loss = scored
+            .first()
+            .map(|s| s.1.loss_probability)
+            .unwrap_or(best_risk);
         let tail_ratio_estimate = (1.0 + tail_penalty * 80.0).clamp(1.0, 10.0);
         let medium_unlock = best_loss < 0.01 && tail_ratio_estimate < 1.25;
         let deadline_only_large = is_large && !packet.nearing_deadline();
@@ -308,7 +320,8 @@ impl MultiPathScheduler {
             && !deadline_only_large
             && ((packet.is_critical() && (best_risk > 0.25 || packet.nearing_deadline()))
                 || (best_risk > 0.35 && self.in_flight_duplicates < speculative_limit)
-                || (packet.nearing_deadline() && self.in_flight_duplicates < self.duplicate_budget / 3));
+                || (packet.nearing_deadline()
+                    && self.in_flight_duplicates < self.duplicate_budget / 3));
 
         if should_duplicate
             && !fec_sufficient
@@ -423,7 +436,10 @@ impl FecEncoder {
         for i in 0..self.parity_shards {
             out.push(Packet {
                 id: PacketId(u64::MAX - i as u64),
-                seq: data.last().map(|p| p.seq + 1 + i as u64).unwrap_or(i as u64),
+                seq: data
+                    .last()
+                    .map(|p| p.seq + 1 + i as u64)
+                    .unwrap_or(i as u64),
                 payload: parity.clone(),
                 is_parity: true,
                 meta: PacketMeta {
@@ -459,9 +475,15 @@ impl FecDecoder {
         if shards.iter().filter(|s| s.is_none()).count() > 1 {
             return None;
         }
-        let parity = shards.iter().find_map(|s| s.as_ref().filter(|p| p.is_parity))?;
+        let parity = shards
+            .iter()
+            .find_map(|s| s.as_ref().filter(|p| p.is_parity))?;
         let mut recovered = parity.payload.clone();
-        for pkt in shards.iter().filter_map(|s| s.as_ref()).filter(|p| !p.is_parity) {
+        for pkt in shards
+            .iter()
+            .filter_map(|s| s.as_ref())
+            .filter(|p| !p.is_parity)
+        {
             for (i, b) in pkt.payload.iter().enumerate() {
                 recovered[i] ^= *b;
             }
@@ -524,7 +546,8 @@ impl HybridCongestionController {
         self.bandwidth_estimate = bandwidth_bps.max(1.0);
         self.min_rtt = self.min_rtt.min(rtt);
         self.loss_rate = loss_rate.clamp(0.0, 1.0);
-        self.rtt_gradient = (rtt.as_secs_f64() - prev_rtt.as_secs_f64()) / prev_rtt.as_secs_f64().max(0.000_001);
+        self.rtt_gradient =
+            (rtt.as_secs_f64() - prev_rtt.as_secs_f64()) / prev_rtt.as_secs_f64().max(0.000_001);
         self.rtt_variance = (rtt.as_secs_f64() - self.min_rtt.as_secs_f64()).abs();
         self.in_use_bandwidth = self.target_send_rate();
     }
@@ -659,7 +682,11 @@ impl AutopilotRuntime {
                 total_shards: shards,
                 required_shards: shards.saturating_sub(self.fec.parity_shards).max(1),
                 sent_shards: 0,
-                received_acks: if completed.contains(&id) { usize::MAX / 2 } else { 0 },
+                received_acks: if completed.contains(&id) {
+                    usize::MAX / 2
+                } else {
+                    0
+                },
                 in_flight: 0,
             })
             .collect::<Vec<_>>();
@@ -697,7 +724,8 @@ impl AutopilotRuntime {
             Duration::from_millis((sum / self.scheduler.paths.len() as u128) as u64)
         };
         let missing = block.required_shards.saturating_sub(block.received_acks) as u64;
-        let mut estimate = avg_rtt + Duration::from_millis(missing.saturating_mul(2 + block.in_flight as u64));
+        let mut estimate =
+            avg_rtt + Duration::from_millis(missing.saturating_mul(2 + block.in_flight as u64));
         if self.completion_first_enabled && block.is_almost_complete() {
             // Completion-first bias: favor almost-finished blocks to cut tail.
             estimate = estimate.saturating_sub(Duration::from_millis(5));
@@ -727,7 +755,9 @@ impl AutopilotRuntime {
                 panic_mode: false,
             };
         }
-        let missing = block.required_shards.saturating_sub(block.sent_shards + block.in_flight);
+        let missing = block
+            .required_shards
+            .saturating_sub(block.sent_shards + block.in_flight);
         let extra = if self.completion_first_enabled { 1 } else { 0 };
         SchedulingDecision {
             additional_shards: (missing + extra).clamp(1, 3),
@@ -754,8 +784,16 @@ impl AutopilotRuntime {
             .collect()
     }
 
-    fn optimize_transfer(&self, packets: Vec<Packet>) -> (Vec<Packet>, Option<OptimizationSnapshot>) {
-        let completed = self.completed_blocks.lock().ok().map(|g| g.clone()).unwrap_or_default();
+    fn optimize_transfer(
+        &self,
+        packets: Vec<Packet>,
+    ) -> (Vec<Packet>, Option<OptimizationSnapshot>) {
+        let completed = self
+            .completed_blocks
+            .lock()
+            .ok()
+            .map(|g| g.clone())
+            .unwrap_or_default();
         if !self.completion_first_enabled {
             let snap = self.summarize_blocks(&packets, &completed, 0);
             return (packets, Some(snap));
@@ -776,7 +814,11 @@ impl AutopilotRuntime {
                 total_shards: shards.len(),
                 required_shards: shards.len().saturating_sub(self.fec.parity_shards).max(1),
                 sent_shards: 0,
-                received_acks: if completed.contains(id) { usize::MAX / 2 } else { 0 },
+                received_acks: if completed.contains(id) {
+                    usize::MAX / 2
+                } else {
+                    0
+                },
                 in_flight: 0,
             })
             .collect::<Vec<_>>();
@@ -787,7 +829,11 @@ impl AutopilotRuntime {
         for shards in by_block.values() {
             snapshot_packets.extend(shards.iter().cloned());
         }
-        let snapshot = self.summarize_blocks(&snapshot_packets, &completed, canceled.max(stragglers.len() / 4));
+        let snapshot = self.summarize_blocks(
+            &snapshot_packets,
+            &completed,
+            canceled.max(stragglers.len() / 4),
+        );
         let mut out = Vec::new();
         loop {
             blocks.sort_by_key(|b| std::cmp::Reverse(self.estimate_completion_time(b)));
@@ -815,17 +861,21 @@ impl AutopilotRuntime {
                         let after = self.estimate_completion_time(block);
                         let marginal_benefit_ms =
                             (before.as_secs_f64() - after.as_secs_f64()).max(0.0) * 1000.0;
-                        let cost_score = (pkt.meta.size as f64 / self.cc.target_send_rate().max(1.0)) * 1000.0;
+                        let cost_score =
+                            (pkt.meta.size as f64 / self.cc.target_send_rate().max(1.0)) * 1000.0;
                         let should_send_duplicate = decision.duplicate
                             && (decision.panic_mode
-                                || (block.is_almost_complete() && marginal_benefit_ms > cost_score));
+                                || (block.is_almost_complete()
+                                    && marginal_benefit_ms > cost_score));
                         if should_send_duplicate {
                             out.push(pkt);
                         }
                     }
                 }
             }
-            if blocks.iter().all(|b| b.is_complete() || by_block.get(&b.id).map(|s| s.is_empty()).unwrap_or(true)) {
+            if blocks.iter().all(|b| {
+                b.is_complete() || by_block.get(&b.id).map(|s| s.is_empty()).unwrap_or(true)
+            }) {
                 break;
             }
         }
@@ -855,14 +905,17 @@ impl AutopilotRuntime {
 
         let mut prioritized = input_packets;
         prioritized.sort_by(|a, b| {
-            b.meta
-                .priority
-                .cmp(&a.meta.priority)
-                .then_with(|| {
-                    let ad = a.meta.deadline.unwrap_or_else(|| Instant::now() + Duration::from_secs(3600));
-                    let bd = b.meta.deadline.unwrap_or_else(|| Instant::now() + Duration::from_secs(3600));
-                    ad.cmp(&bd)
-                })
+            b.meta.priority.cmp(&a.meta.priority).then_with(|| {
+                let ad = a
+                    .meta
+                    .deadline
+                    .unwrap_or_else(|| Instant::now() + Duration::from_secs(3600));
+                let bd = b
+                    .meta
+                    .deadline
+                    .unwrap_or_else(|| Instant::now() + Duration::from_secs(3600));
+                ad.cmp(&bd)
+            })
         });
         tokio::spawn(async move {
             for p in prioritized {
@@ -961,7 +1014,12 @@ mod tests {
             seq: 1,
             payload: vec![2],
             is_parity: false,
-            meta: PacketMeta { id: 2, priority: 10, deadline: None, size: 1 },
+            meta: PacketMeta {
+                id: 2,
+                priority: 10,
+                deadline: None,
+                size: 1,
+            },
             fec_group: 0,
             reconstructable: false,
         });
@@ -970,7 +1028,12 @@ mod tests {
             seq: 0,
             payload: vec![1],
             is_parity: false,
-            meta: PacketMeta { id: 1, priority: 10, deadline: None, size: 1 },
+            meta: PacketMeta {
+                id: 1,
+                priority: 10,
+                deadline: None,
+                size: 1,
+            },
             fec_group: 0,
             reconstructable: false,
         });
@@ -979,7 +1042,12 @@ mod tests {
             seq: 0,
             payload: vec![9],
             is_parity: false,
-            meta: PacketMeta { id: 1, priority: 10, deadline: None, size: 1 },
+            meta: PacketMeta {
+                id: 1,
+                priority: 10,
+                deadline: None,
+                size: 1,
+            },
             fec_group: 0,
             reconstructable: false,
         });
@@ -999,7 +1067,12 @@ mod tests {
             seq: 0,
             payload: vec![0xAA, 0x11],
             is_parity: false,
-            meta: PacketMeta { id: 1, priority: 200, deadline: None, size: 2 },
+            meta: PacketMeta {
+                id: 1,
+                priority: 200,
+                deadline: None,
+                size: 2,
+            },
             fec_group: 7,
             reconstructable: false,
         };
@@ -1008,7 +1081,12 @@ mod tests {
             seq: 1,
             payload: vec![0x55, 0x22],
             is_parity: false,
-            meta: PacketMeta { id: 2, priority: 200, deadline: None, size: 2 },
+            meta: PacketMeta {
+                id: 2,
+                priority: 200,
+                deadline: None,
+                size: 2,
+            },
             fec_group: 7,
             reconstructable: false,
         };

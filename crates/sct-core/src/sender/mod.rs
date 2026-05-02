@@ -1,9 +1,9 @@
-use crate::compression::maybe_compress;
 use crate::adaptive::{
-    compute_chunk_size, compute_fec_ratio, AutopilotRuntime, FecEncoder, MultiPathScheduler, Packet,
-    PacketId, PacketMeta, TransferMetrics,
-    QuicDatagramPath, QuicStreamPath, ReceiverFeedback, StrategyEngine, TransferMode,
+    compute_chunk_size, compute_fec_ratio, AutopilotRuntime, FecEncoder, MultiPathScheduler,
+    Packet, PacketId, PacketMeta, QuicDatagramPath, QuicStreamPath, ReceiverFeedback,
+    StrategyEngine, TransferMetrics, TransferMode,
 };
+use crate::compression::maybe_compress;
 use crate::protocol::{
     encode, read_framed, write_framed, ChunkDescriptor, CompressionType, FinalAck, ManifestAck,
     ReceiverFeedbackFrame, TransferComplete, TransferManifest,
@@ -100,7 +100,8 @@ impl FileSender {
         let skip: HashSet<u64> = ack.received_chunks.iter().copied().collect();
 
         if true {
-            self.send_adaptive(&full, &manifest, &skip, total_size).await?;
+            self.send_adaptive(&full, &manifest, &skip, total_size)
+                .await?;
         } else {
             self.send_legacy(&full, &skip, total_size).await?;
         }
@@ -194,8 +195,12 @@ impl FileSender {
             in_flight_duplicates: 0,
             known_reconstructable: Default::default(),
         };
-        scheduler.paths.push(Box::new(QuicStreamPath::new(stream_tx)));
-        scheduler.paths.push(Box::new(QuicDatagramPath::new(dgram_tx)));
+        scheduler
+            .paths
+            .push(Box::new(QuicStreamPath::new(stream_tx)));
+        scheduler
+            .paths
+            .push(Box::new(QuicDatagramPath::new(dgram_tx)));
 
         let mut runtime = AutopilotRuntime {
             strategy: StrategyEngine::default(),
@@ -207,9 +212,7 @@ impl FileSender {
             },
             metrics: TransferMetrics::default(),
             completed_blocks: Arc::new(StdMutex::new(HashSet::new())),
-            completion_first_enabled: std::env::var("SC_SCT_COMPLETION_FIRST")
-                .ok()
-                .as_deref()
+            completion_first_enabled: std::env::var("SC_SCT_COMPLETION_FIRST").ok().as_deref()
                 == Some("1"),
         };
         let rtt = self.connection.rtt();
@@ -225,13 +228,15 @@ impl FileSender {
             .cc
             .on_network_sample(bw_estimate_bps, rtt, prev_rtt, loss_hint);
         let recv_feedback = ReceiverFeedback {
-            decode_delay: Duration::from_millis(if rtt > Duration::from_millis(80) { 45 } else { 10 }),
+            decode_delay: Duration::from_millis(if rtt > Duration::from_millis(80) {
+                45
+            } else {
+                10
+            }),
             buffer_occupancy: if cwnd < (1 << 20) { 0.75 } else { 0.35 },
             cpu_load: 0.5,
         };
-        runtime
-            .strategy
-            .update(rtt, loss_hint, 0.2, &recv_feedback);
+        runtime.strategy.update(rtt, loss_hint, 0.2, &recv_feedback);
         let (data, parity) = compute_fec_ratio(loss_hint, runtime.cc.rtt_variance);
         runtime.fec.data_shards = data;
         runtime.fec.parity_shards = parity;
@@ -292,7 +297,13 @@ impl FileSender {
         self.build_chunk_payload_at(full, idx, off, end)
     }
 
-    fn build_chunk_payload_at(&self, full: &[u8], idx: u64, off: usize, end: usize) -> Result<Vec<u8>> {
+    fn build_chunk_payload_at(
+        &self,
+        full: &[u8],
+        idx: u64,
+        off: usize,
+        end: usize,
+    ) -> Result<Vec<u8>> {
         let chunk_raw = &full[off..end];
         let chunk = maybe_compress(chunk_raw, &self.config.compression)?;
         let desc = ChunkDescriptor {
@@ -360,12 +371,9 @@ async fn apply_feedback_if_present(
             buffer_occupancy: fb.buffer_occupancy as f64,
             cpu_load: fb.cpu_load as f64,
         };
-        runtime.cc.on_network_sample(
-            runtime.cc.bandwidth_estimate,
-            rtt,
-            runtime.cc.min_rtt,
-            loss,
-        );
+        runtime
+            .cc
+            .on_network_sample(runtime.cc.bandwidth_estimate, rtt, runtime.cc.min_rtt, loss);
         runtime.strategy.update(rtt, loss, 0.2, &feedback);
         if fb.block_reconstructable {
             if let Some(block_id) = fb.completed_block_id {
@@ -395,4 +403,3 @@ async fn apply_feedback_if_present(
         };
     }
 }
-

@@ -1,6 +1,6 @@
 use sct_core::adaptive::{
-    AutopilotRuntime, FecEncoder, HybridCongestionController, MultiPathScheduler, Packet, PacketId, PacketMeta,
-    ReceiverFeedback, StrategyEngine, TransferMetrics, TransportPath,
+    AutopilotRuntime, FecEncoder, HybridCongestionController, MultiPathScheduler, Packet, PacketId,
+    PacketMeta, ReceiverFeedback, StrategyEngine, TransferMetrics, TransportPath,
 };
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -14,10 +14,18 @@ struct DummyPath {
 
 impl TransportPath for DummyPath {
     fn send(&mut self, _packet: Packet) {}
-    fn estimated_rtt(&self) -> Duration { self.rtt }
-    fn estimated_bandwidth(&self) -> f64 { self.bw }
-    fn loss_rate(&self) -> f64 { self.loss }
-    fn path_kind(&self) -> sct_core::adaptive::PathKind { sct_core::adaptive::PathKind::Stream }
+    fn estimated_rtt(&self) -> Duration {
+        self.rtt
+    }
+    fn estimated_bandwidth(&self) -> f64 {
+        self.bw
+    }
+    fn loss_rate(&self) -> f64 {
+        self.loss
+    }
+    fn path_kind(&self) -> sct_core::adaptive::PathKind {
+        sct_core::adaptive::PathKind::Stream
+    }
 }
 
 fn make_packets() -> Vec<Packet> {
@@ -60,7 +68,12 @@ fn runtime(completion_first_enabled: bool) -> AutopilotRuntime {
         loss: 0.04,
     }));
     let mut cc = HybridCongestionController::default();
-    cc.on_network_sample(220_000_000.0, Duration::from_millis(22), Duration::from_millis(20), 0.02);
+    cc.on_network_sample(
+        220_000_000.0,
+        Duration::from_millis(22),
+        Duration::from_millis(20),
+        0.02,
+    );
     let mut strategy = StrategyEngine::default();
     strategy.update(
         Duration::from_millis(22),
@@ -100,7 +113,9 @@ async fn completion_first_reduces_tail_and_waste() {
     let mut completion = runtime(true);
     completion.run_pipeline(packets).await;
 
-    assert!(completion.metrics.canceled_redundant_sends > baseline.metrics.canceled_redundant_sends);
+    assert!(
+        completion.metrics.canceled_redundant_sends > baseline.metrics.canceled_redundant_sends
+    );
     assert!(completion.metrics.straggler_count > 0);
     assert!(completion.metrics.p95_completion <= completion.metrics.p99_completion);
     eprintln!(

@@ -1,6 +1,6 @@
 use sct_core::adaptive::{
-    AutopilotRuntime, FecEncoder, HybridCongestionController, MultiPathScheduler, Packet, PacketId, PacketMeta,
-    ReceiverFeedback, StrategyEngine, TransferMetrics, TransportPath,
+    AutopilotRuntime, FecEncoder, HybridCongestionController, MultiPathScheduler, Packet, PacketId,
+    PacketMeta, ReceiverFeedback, StrategyEngine, TransferMetrics, TransportPath,
 };
 use serde::Serialize;
 use std::collections::HashSet;
@@ -79,7 +79,12 @@ fn runtime(enabled: bool) -> AutopilotRuntime {
         loss: 0.045,
     }));
     let mut cc = HybridCongestionController::default();
-    cc.on_network_sample(200_000_000.0, Duration::from_millis(24), Duration::from_millis(21), 0.025);
+    cc.on_network_sample(
+        200_000_000.0,
+        Duration::from_millis(24),
+        Duration::from_millis(21),
+        0.025,
+    );
     let mut strategy = StrategyEngine::default();
     strategy.update(
         Duration::from_millis(24),
@@ -122,10 +127,7 @@ fn maybe_write_artifact(name: &str, body: &str) {
 
 #[tokio::test]
 async fn completion_campaign_metrics() {
-    let enabled = std::env::var("SC_SCT_COMPLETION_FIRST")
-        .ok()
-        .as_deref()
-        != Some("0");
+    let enabled = std::env::var("SC_SCT_COMPLETION_FIRST").ok().as_deref() != Some("0");
     let mut rt = runtime(enabled);
     rt.run_pipeline(packets()).await;
     let s = CompletionCampaignSummary {

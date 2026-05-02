@@ -65,7 +65,9 @@ impl Default for QuicDatagramTransport {
 
 impl QuicDatagramTransport {
     fn env_usize(name: &str) -> Option<usize> {
-        std::env::var(name).ok().and_then(|v| v.parse::<usize>().ok())
+        std::env::var(name)
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
     }
 
     fn env_f64(name: &str) -> Option<f64> {
@@ -77,7 +79,8 @@ impl QuicDatagramTransport {
     }
 
     pub fn with_config(config: QuicDatagramConfig) -> Self {
-        let max_datagram_size = Self::env_usize("SC_DGRAM_MAX_BYTES").unwrap_or(config.max_datagram_bytes);
+        let max_datagram_size =
+            Self::env_usize("SC_DGRAM_MAX_BYTES").unwrap_or(config.max_datagram_bytes);
         let preferred_datagram_size = Self::env_usize("SC_DGRAM_PREFERRED_BYTES")
             .unwrap_or(config.preferred_datagram_bytes)
             .min(max_datagram_size);
