@@ -9,6 +9,7 @@ permissions:
 jobs:
   dependency-review:
     runs-on: ubuntu-latest
+    # Requires Dependency graph (Settings → Code security). Non-fatal until enabled.
     permissions:
       contents: read
       pull-requests: read
