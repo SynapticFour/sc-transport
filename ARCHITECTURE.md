@@ -1,25 +1,17 @@
-# Architecture Overview
+# Architecture
 
-This document explains the system at a level that helps contributors reason about change impact.
+This repository uses a modular structure with clear ownership boundaries and explicit integration points.
 
-## Goals
+## Reference map
 
-- Keep behavior predictable and testable.
-- Keep security and operational concerns explicit.
-- Keep extension points clear for new features.
+- `README.md`: project scope and usage entrypoint.
+- `docs/`: detailed design notes, operational guidance, and implementation decisions.
+- `DECISIONS.md`: architectural decisions and rationale.
+- `TESTING.md` (where present): verification strategy and quality gates.
 
-## High-level structure
+## Design principles
 
-Describe the major modules/services and their responsibilities here.
-
-## Data and control flows
-
-Describe how requests/events flow through the system and where validation, authorization, and persistence happen.
-
-## Reliability and security boundaries
-
-Describe trust boundaries, secret handling, and failure modes that contributors should keep in mind.
-
-## Key extension points
-
-List where new integrations, endpoints, or jobs should be added.
+- Keep interfaces stable and versioned.
+- Prefer explicit contracts over implicit behavior.
+- Treat security, observability, and operability as first-class concerns.
+- Document trade-offs and migration paths before introducing breaking changes.

@@ -102,7 +102,7 @@ confirm it performs as intended in real scientific deployments.**
 
 ## License
 
-Apache-2.0. Copyright (c) 2026 Synaptic Four.
+Apache-2.0.
 
 ## Support
 
@@ -110,7 +110,5 @@ Questions or security concerns: [contact@synapticfour.com](mailto:contact@synapt
 
 ---
 
-Built by **Synaptic Four** for transparent, standards-based scientific infrastructure.
-Developed by a neurodiverse team, including autistic engineers, with a focus on precision, clarity, and reliable operations.
-Contact: [contact@synapticfour.com](mailto:contact@synapticfour.com) · [synapticfour.com](https://synapticfour.com)
+Contact: [contact@synapticfour.com](mailto:contact@synapticfour.com)
 
