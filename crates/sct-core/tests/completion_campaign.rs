@@ -1,7 +1,7 @@
 use sct_core::adaptive::{
     AutopilotRuntime, FecEncoder, HybridCongestionController, MultiPathScheduler, OptimizationKpi,
-    Packet, PacketId, PacketMeta, PathCorrelation, ReceiverFeedback, StrategyEngine, TransferMetrics,
-    TransportPath,
+    Packet, PacketId, PacketMeta, PathCorrelation, ReceiverFeedback, StrategyEngine,
+    TransferMetrics, TransportPath,
 };
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};

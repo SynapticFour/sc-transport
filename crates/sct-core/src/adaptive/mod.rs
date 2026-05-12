@@ -250,7 +250,8 @@ impl MultiPathScheduler {
         let kinds: Vec<PathKind> = self.paths.iter().map(|p| p.path_kind()).collect();
         self.path_correlation = PathCorrelation::from_path_kinds(&kinds);
         if self.queue_models.len() != self.paths.len() {
-            self.queue_models.resize(self.paths.len(), QueueModel::default());
+            self.queue_models
+                .resize(self.paths.len(), QueueModel::default());
         }
     }
 
@@ -399,8 +400,8 @@ impl MultiPathScheduler {
             0.0
         };
         let cq = (1.0 - 0.45 * congestion.queue_pressure.clamp(0.0, 1.0)).max(0.55);
-        let mut speculative_limit = ((self.speculative_ratio + 0.15 * headroom_boost) * 100.0 * cq)
-            as usize;
+        let mut speculative_limit =
+            ((self.speculative_ratio + 0.15 * headroom_boost) * 100.0 * cq) as usize;
         speculative_limit = speculative_limit.clamp(8, 24);
 
         let q_primary = self
@@ -408,8 +409,8 @@ impl MultiPathScheduler {
             .get(primary_idx)
             .map(|q| q.predicted_queue_delay(paths_snap[primary_idx].bandwidth))
             .unwrap_or(0.0);
-        let best_expected = self.paths[primary_idx].estimated_rtt()
-            + Duration::from_secs_f64(q_primary.max(0.0));
+        let best_expected =
+            self.paths[primary_idx].estimated_rtt() + Duration::from_secs_f64(q_primary.max(0.0));
         let primary_loss = paths_snap[primary_idx].loss;
         let low_cost_fast = primary_loss < 0.02
             && best_expected < Duration::from_millis(8)
@@ -434,7 +435,10 @@ impl MultiPathScheduler {
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| a.0.cmp(&b.0))
         });
-        let secondary_idx = by_utility.iter().map(|(i, _)| *i).find(|&i| i != primary_idx);
+        let secondary_idx = by_utility
+            .iter()
+            .map(|(i, _)| *i)
+            .find(|&i| i != primary_idx);
         let u_dup = secondary_idx
             .map(|sec| {
                 optimization::duplicate_send_utility(
@@ -462,9 +466,7 @@ impl MultiPathScheduler {
                 || (packet.nearing_deadline()
                     && self.in_flight_duplicates < self.duplicate_budget / 3));
 
-        if should_duplicate
-            && !fec_sufficient
-            && self.in_flight_duplicates < self.duplicate_budget
+        if should_duplicate && !fec_sufficient && self.in_flight_duplicates < self.duplicate_budget
         {
             if let Some(redundant_idx) = secondary_idx {
                 let primary_kind = self.paths[primary_idx].path_kind();
@@ -500,10 +502,8 @@ impl MultiPathScheduler {
                     .duplicate_bytes
                     .saturating_add(pkt_sz as u64);
                 self.optimization_kpi.duplicate_utility_sum += u_dup;
-                self.optimization_kpi.correlation_penalty_area += self
-                    .path_correlation
-                    .rho(primary_idx, redundant_idx)
-                    * pkt_sz as f64;
+                self.optimization_kpi.correlation_penalty_area +=
+                    self.path_correlation.rho(primary_idx, redundant_idx) * pkt_sz as f64;
             }
         }
     }
@@ -720,7 +720,8 @@ impl HybridCongestionController {
             + EWMA * signal.queue_pressure.clamp(0.0, 1.0);
         self.scheduler_completion_pressure = (1.0 - EWMA) * self.scheduler_completion_pressure
             + EWMA * signal.completion_pressure.clamp(0.0, 1.0);
-        self.scheduler_retransmission_pressure = (1.0 - EWMA) * self.scheduler_retransmission_pressure
+        self.scheduler_retransmission_pressure = (1.0 - EWMA)
+            * self.scheduler_retransmission_pressure
             + EWMA * signal.retransmission_pressure.clamp(0.0, 1.0);
     }
 
@@ -968,9 +969,8 @@ impl AutopilotRuntime {
         let p95 = self.metrics.p95_completion.as_secs_f64().max(0.001);
         let p50 = self.metrics.p50_completion.as_secs_f64().max(0.001);
         let completion_pressure = (((p95 / p50) - 1.0).clamp(0.0, 3.0) / 3.0).min(1.0);
-        let queue_pressure = (self.cc.rtt_variance
-            / self.cc.min_rtt.as_secs_f64().max(0.000_5))
-        .clamp(0.0, 1.0);
+        let queue_pressure =
+            (self.cc.rtt_variance / self.cc.min_rtt.as_secs_f64().max(0.000_5)).clamp(0.0, 1.0);
         let retransmission_pressure = self.cc.loss_rate.clamp(0.0, 1.0);
         CongestionSignal {
             queue_pressure,
@@ -1407,14 +1407,10 @@ impl AutopilotRuntime {
             .scheduler
             .optimization_kpi
             .utility_per_transmitted_byte();
-        self.metrics.duplication_efficiency = self
-            .scheduler
-            .optimization_kpi
-            .duplication_efficiency();
-        self.metrics.correlated_loss_penalties = self
-            .scheduler
-            .optimization_kpi
-            .correlated_loss_penalties();
+        self.metrics.duplication_efficiency =
+            self.scheduler.optimization_kpi.duplication_efficiency();
+        self.metrics.correlated_loss_penalties =
+            self.scheduler.optimization_kpi.correlated_loss_penalties();
         self.metrics.queue_prediction_accuracy = self
             .scheduler
             .optimization_kpi

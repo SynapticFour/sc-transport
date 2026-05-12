@@ -12,10 +12,10 @@
 //! Optional: `SC_SCT_BENCH_TIMEOUT_SECS` (default 180), `SC_SCT_COMPLETION_FIRST=1`, etc.
 
 use anyhow::{Context, Result};
-use serde::Serialize;
 use sct_core::receiver::{FileReceiver, ReceiverConfig};
 use sct_core::sender::{FileSender, SenderConfig};
 use sct_core::transport::{SctEndpoint, TransportConfig};
+use serde::Serialize;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 use tokio::time::timeout;

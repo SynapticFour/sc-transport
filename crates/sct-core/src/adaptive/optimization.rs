@@ -38,9 +38,8 @@ impl PathCorrelation {
             for j in (i + 1)..n {
                 let rho = match (kinds[i], kinds[j]) {
                     // Stream + datagram on the same logical route share fate (Wi‑Fi, last mile).
-                    (PathKind::Stream, PathKind::Datagram) | (PathKind::Datagram, PathKind::Stream) => {
-                        0.82
-                    }
+                    (PathKind::Stream, PathKind::Datagram)
+                    | (PathKind::Datagram, PathKind::Stream) => 0.82,
                     (PathKind::Stream, PathKind::Stream) => 0.68,
                     (PathKind::Datagram, PathKind::Datagram) => 0.58,
                 };
@@ -159,7 +158,9 @@ impl OptimizationKpi {
         if self.completion_prob_samples <= 0.0 {
             return 0.0;
         }
-        1.0 - (self.completion_prob_observed / self.completion_prob_samples).abs().min(1.0)
+        1.0 - (self.completion_prob_observed / self.completion_prob_samples)
+            .abs()
+            .min(1.0)
     }
 }
 
@@ -200,10 +201,7 @@ pub fn estimate_completion(
         };
     }
     let missing = remaining_data_shards(block).max(block.in_flight.min(block.required_shards));
-    let inflight_same = inflight
-        .iter()
-        .filter(|p| p.fec_group == block.id)
-        .count();
+    let inflight_same = inflight.iter().filter(|p| p.fec_group == block.id).count();
     let avg_rtt_s: f64 = paths
         .iter()
         .map(|p| p.rtt.as_secs_f64().max(0.000_01))
@@ -373,7 +371,11 @@ pub fn duplicate_send_utility(
         * (1.0 - 0.55 * rho);
     let qm = queue_models.get(secondary_idx).copied().unwrap_or_default();
     let q_delay = qm.predicted_queue_delay(paths[secondary_idx].bandwidth);
-    let cost = bandwidth_cost_s(packet.meta.size as f64, paths[secondary_idx].bandwidth, q_delay);
+    let cost = bandwidth_cost_s(
+        packet.meta.size as f64,
+        paths[secondary_idx].bandwidth,
+        q_delay,
+    );
     reduction / cost.max(1e-9)
 }
 
@@ -400,8 +402,7 @@ pub(crate) fn pick_primary_path(
     }
     let mut sorted = utilities.to_vec();
     sorted.sort_by(|a, b| {
-        b.1
-            .partial_cmp(&a.1)
+        b.1.partial_cmp(&a.1)
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| a.0.cmp(&b.0))
     });
@@ -520,9 +521,16 @@ mod tests {
         };
         let q = [QueueModel::default(), QueueModel::default()];
         let inflight: Vec<Packet> = vec![];
-        let u_high = duplicate_send_utility(0, 1, &paths, &q, &corr_high, &pkt, &block, &inflight, 1, 0.02);
-        let u_low = duplicate_send_utility(0, 1, &paths, &q, &corr_low, &pkt, &block, &inflight, 1, 0.02);
-        assert!(u_low > u_high, "high correlation should shrink duplicate utility");
+        let u_high = duplicate_send_utility(
+            0, 1, &paths, &q, &corr_high, &pkt, &block, &inflight, 1, 0.02,
+        );
+        let u_low = duplicate_send_utility(
+            0, 1, &paths, &q, &corr_low, &pkt, &block, &inflight, 1, 0.02,
+        );
+        assert!(
+            u_low > u_high,
+            "high correlation should shrink duplicate utility"
+        );
     }
 
     #[test]
