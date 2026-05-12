@@ -309,6 +309,7 @@ impl MultiPathScheduler {
             .collect()
     }
 
+    #[allow(clippy::too_many_arguments)] // Send path bundles FEC, congestion, and block context.
     pub fn distribute_and_send(
         &mut self,
         packet: Packet,
@@ -894,7 +895,7 @@ impl AutopilotRuntime {
         let received_acks = if completed {
             required
         } else if reconstructable {
-            required.saturating_sub(1).max(0)
+            required.saturating_sub(1)
         } else {
             0
         };

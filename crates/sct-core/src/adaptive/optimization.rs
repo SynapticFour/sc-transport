@@ -301,6 +301,7 @@ pub fn bandwidth_cost_s(packet_bytes: f64, bandwidth_bps: f64, queue_delay_s: f6
 }
 
 /// Per‑path utility for sending `packet` on `path_idx` for `block`.
+#[allow(clippy::too_many_arguments)] // Scheduling context is inherently multi‑factor.
 pub fn path_send_utility(
     path_idx: usize,
     paths: &[PathState],
@@ -333,6 +334,7 @@ pub fn path_send_utility(
 }
 
 /// Utility of duplicating onto `secondary_idx` given primary `primary_idx`.
+#[allow(clippy::too_many_arguments)] // Mirrors path/correlation inputs used by the scheduler.
 pub fn duplicate_send_utility(
     primary_idx: usize,
     secondary_idx: usize,
