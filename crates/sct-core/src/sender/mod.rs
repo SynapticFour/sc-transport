@@ -184,7 +184,7 @@ impl FileSender {
 
         let mut scheduler = MultiPathScheduler {
             paths: Vec::new(),
-            speculative_ratio: 0.15,
+            speculative_ratio: 0.0, // startet bei 0; wird durch on_feedback_tick hochgeregelt
             // File transfer path expects exactly manifest.num_chunks streams on receiver.
             // Keep duplication off until protocol-level duplicate accounting is introduced.
             duplicate_budget: 0,
@@ -195,6 +195,9 @@ impl FileSender {
             tokens: 2.0 * 1500.0,
             last_token_refill: Instant::now() - Duration::from_millis(50),
         };
+        // Beide Pfade sind immer aktiv. speculative_ratio bestimmt wie viele
+        // Pakete dupliziert werden — startet bei 0.0 und wächst dynamisch
+        // über estimate_unused_bandwidth / on_feedback_tick.
         scheduler
             .paths
             .push(Box::new(QuicStreamPath::new(stream_tx)));

@@ -65,7 +65,7 @@ fn packets() -> Vec<Packet> {
 fn runtime(enabled: bool) -> AutopilotRuntime {
     let mut scheduler = MultiPathScheduler {
         paths: Vec::new(),
-        speculative_ratio: 0.15,
+        speculative_ratio: 0.0,
         duplicate_budget: 300,
         in_flight_duplicates: 0,
         known_reconstructable: HashSet::new(),
