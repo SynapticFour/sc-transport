@@ -254,6 +254,7 @@ impl FileSender {
             .max(1);
         let start = Instant::now();
         let mut sent = 0_u64;
+        let mut nack_retransmitted: HashSet<u64> = HashSet::new();
         for idx in 0..manifest.num_chunks {
             if skip.contains(&idx) {
                 continue;
@@ -277,11 +278,75 @@ impl FileSender {
             });
             if packets.len() >= batch_size {
                 apply_feedback_if_present(&mut runtime, &feedback_state, rtt).await;
+                // NACK-Retransmit: fehlende Chunks die der Receiver gemeldet hat nachsenden.
+                {
+                    let maybe_frame = feedback_state.lock().await.clone();
+                    if let Some(ref frame) = maybe_frame {
+                        let data_shards = runtime.fec.data_shards.max(1) as u64;
+                        for &missing_idx in frame.missing_chunk_indices.iter().take(8) {
+                            if skip.contains(&missing_idx) {
+                                continue;
+                            }
+                            if nack_retransmitted.contains(&missing_idx) {
+                                continue;
+                            }
+                            nack_retransmitted.insert(missing_idx);
+                            if let Ok(payload) = self.build_chunk_payload(full, missing_idx) {
+                                packets.push(Packet {
+                                    id: PacketId(missing_idx),
+                                    seq: missing_idx,
+                                    payload,
+                                    is_parity: false,
+                                    meta: PacketMeta {
+                                        id: missing_idx,
+                                        priority: 255,
+                                        deadline: Some(Instant::now() + Duration::from_millis(50)),
+                                        size: self.chunk_len(full, missing_idx),
+                                    },
+                                    fec_group: missing_idx / data_shards,
+                                    reconstructable: false,
+                                });
+                            }
+                        }
+                    }
+                }
                 runtime.run_pipeline(std::mem::take(&mut packets)).await;
             }
         }
         if !packets.is_empty() {
             apply_feedback_if_present(&mut runtime, &feedback_state, rtt).await;
+            // NACK-Retransmit: fehlende Chunks die der Receiver gemeldet hat nachsenden.
+            {
+                let maybe_frame = feedback_state.lock().await.clone();
+                if let Some(ref frame) = maybe_frame {
+                    let data_shards = runtime.fec.data_shards.max(1) as u64;
+                    for &missing_idx in frame.missing_chunk_indices.iter().take(8) {
+                        if skip.contains(&missing_idx) {
+                            continue;
+                        }
+                        if nack_retransmitted.contains(&missing_idx) {
+                            continue;
+                        }
+                        nack_retransmitted.insert(missing_idx);
+                        if let Ok(payload) = self.build_chunk_payload(full, missing_idx) {
+                            packets.push(Packet {
+                                id: PacketId(missing_idx),
+                                seq: missing_idx,
+                                payload,
+                                is_parity: false,
+                                meta: PacketMeta {
+                                    id: missing_idx,
+                                    priority: 255,
+                                    deadline: Some(Instant::now() + Duration::from_millis(50)),
+                                    size: self.chunk_len(full, missing_idx),
+                                },
+                                fec_group: missing_idx / data_shards,
+                                reconstructable: false,
+                            });
+                        }
+                    }
+                }
+            }
             runtime.run_pipeline(packets).await;
         }
         drop(runtime);

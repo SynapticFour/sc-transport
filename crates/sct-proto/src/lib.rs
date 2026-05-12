@@ -64,4 +64,6 @@ pub struct ReceiverFeedbackFrame {
     pub completed_block_id: Option<u64>,
     #[serde(default)]
     pub block_reconstructable: bool,
+    #[serde(default)]
+    pub missing_chunk_indices: Vec<u64>,
 }

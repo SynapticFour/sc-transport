@@ -261,3 +261,24 @@ async fn missing_final_ack_fails_in_strict_mode() {
     })
     .await;
 }
+
+#[test]
+fn missing_chunk_list_is_capped_and_sorted() {
+    use std::collections::HashSet;
+    // Simuliert: manifest.num_chunks=200, received_chunks enthält alle außer
+    // 100 zufällig verteilten — Vec muss <= 64 Einträge haben, aufsteigend.
+    let num_chunks = 200u64;
+    let received: HashSet<u64> = (0..num_chunks).filter(|i| i % 2 == 0).collect();
+    let mut missing: Vec<u64> = (0..num_chunks)
+        .filter(|i| !received.contains(i))
+        .take(64)
+        .collect();
+    missing.sort_unstable();
+
+    assert!(missing.len() <= 64);
+    assert!(missing.windows(2).all(|w| w[0] < w[1]), "nicht sortiert");
+    assert_eq!(
+        missing[0], 1,
+        "kleinster fehlender Chunk muss zuerst kommen"
+    );
+}

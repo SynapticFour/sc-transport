@@ -154,6 +154,15 @@ impl FileReceiver {
             received_chunks.insert(desc.index);
             if let Some(ref mut fb_send) = feedback_stream {
                 if (received_chunks.len() as u64).is_multiple_of(feedback_every) {
+                    // Berechne fehlende Chunks: expected minus already received.
+                    // Cap auf 64 Einträge, kleinste Indizes zuerst (Sender priorisiert
+                    // frühe Chunks — sie blockieren oft spätere durch sequentiellen Schreibzwang).
+                    let mut missing: Vec<u64> = (0..manifest.num_chunks)
+                        .filter(|i| !received_chunks.contains(i))
+                        .take(64)
+                        .collect();
+                    missing.sort_unstable();
+
                     let frame = ReceiverFeedbackFrame {
                         transfer_id: manifest.transfer_id,
                         decode_delay_ms: if manifest.chunk_size > (1024 * 1024) {
@@ -169,6 +178,7 @@ impl FileReceiver {
                         rtt_ms: 25,
                         completed_block_id: Some(desc.index / 4),
                         block_reconstructable: true,
+                        missing_chunk_indices: missing,
                     };
                     let _ = write_framed(fb_send, &frame).await;
                 }
