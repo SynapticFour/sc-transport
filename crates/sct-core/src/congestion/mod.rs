@@ -418,9 +418,7 @@ mod tests {
         let t_new = t0 + Duration::from_secs(3); // > 2s window
         c.on_acked(
             100, // winzige Bandwidth
-            rtt,
-            t_new,
-            false,
+            rtt, t_new, false,
         );
 
         // Der alte Hochspitzen-Wert muss jetzt aus dem Fenster gefallen sein

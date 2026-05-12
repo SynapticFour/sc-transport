@@ -143,8 +143,7 @@ async fn completion_campaign_metrics() {
             straggler_count: rt.metrics.straggler_count,
             canceled_redundant_sends: rt.metrics.canceled_redundant_sends,
         };
-        let body =
-            serde_json::to_string_pretty(&s).expect("serialize completion campaign summary");
+        let body = serde_json::to_string_pretty(&s).expect("serialize completion campaign summary");
         maybe_write_artifact("completion-campaign-summary", &body);
         if enabled {
             assert!(

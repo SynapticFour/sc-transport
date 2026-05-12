@@ -747,7 +747,8 @@ impl AutopilotRuntime {
         let pipeline_progress = block.sent_shards.min(block.required_shards);
         let missing = block
             .required_shards
-            .saturating_sub(block.received_acks.max(pipeline_progress)) as u64;
+            .saturating_sub(block.received_acks.max(pipeline_progress))
+            as u64;
         let mut estimate =
             avg_rtt + Duration::from_millis(missing.saturating_mul(2 + block.in_flight as u64));
         if missing == 0 {

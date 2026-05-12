@@ -66,35 +66,39 @@ async fn loopback_throughput_is_nonzero() {
 #[tokio::test]
 #[serial]
 async fn compression_effectiveness_for_redundant_payload() {
-    common::with_timeout("compression_effectiveness_for_redundant_payload", 120, async {
-        let recv_tmp = tempfile::tempdir().expect("tempdir");
-        std::env::set_var("HOME", recv_tmp.path());
-        let send_tmp = tempfile::tempdir().expect("tempdir");
-        let src = send_tmp.path().join("compressible.bin");
-        tokio::fs::write(&src, vec![0x00_u8; 1024 * 1024])
-            .await
-            .expect("write");
-        let (addr, recv_task) = start_receiver(recv_tmp.path().to_path_buf(), false).await;
-        let client = SctEndpoint::client(TransportConfig {
-            bind_addr: "0.0.0.0:0".parse().expect("addr"),
-            ..Default::default()
-        })
-        .expect("client");
-        let server_name = format!("prompt5-{}", addr.port());
-        let conn = client.connect(addr, &server_name).await.expect("connect");
-        let sender = FileSender::new(
-            conn,
-            SenderConfig {
-                compression: CompressionType::Zstd { level: 3 },
+    common::with_timeout(
+        "compression_effectiveness_for_redundant_payload",
+        120,
+        async {
+            let recv_tmp = tempfile::tempdir().expect("tempdir");
+            std::env::set_var("HOME", recv_tmp.path());
+            let send_tmp = tempfile::tempdir().expect("tempdir");
+            let src = send_tmp.path().join("compressible.bin");
+            tokio::fs::write(&src, vec![0x00_u8; 1024 * 1024])
+                .await
+                .expect("write");
+            let (addr, recv_task) = start_receiver(recv_tmp.path().to_path_buf(), false).await;
+            let client = SctEndpoint::client(TransportConfig {
+                bind_addr: "0.0.0.0:0".parse().expect("addr"),
                 ..Default::default()
-            },
-        );
-        sender.send(&src).await.expect("send");
-        let out = recv_task.await.expect("join");
-        let got = tokio::fs::read(out).await.expect("read");
-        assert_eq!(got.len(), 1024 * 1024);
-        assert!(got.iter().all(|b| *b == 0));
-    })
+            })
+            .expect("client");
+            let server_name = format!("prompt5-{}", addr.port());
+            let conn = client.connect(addr, &server_name).await.expect("connect");
+            let sender = FileSender::new(
+                conn,
+                SenderConfig {
+                    compression: CompressionType::Zstd { level: 3 },
+                    ..Default::default()
+                },
+            );
+            sender.send(&src).await.expect("send");
+            let out = recv_task.await.expect("join");
+            let got = tokio::fs::read(out).await.expect("read");
+            assert_eq!(got.len(), 1024 * 1024);
+            assert!(got.iter().all(|b| *b == 0));
+        },
+    )
     .await;
 }
 
