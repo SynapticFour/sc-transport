@@ -810,7 +810,7 @@ impl AutopilotRuntime {
         let n = scored.len();
         // Slow tail: top ceil(5% of blocks), capped at 4 so cf-check straggler_count < 5 when many
         // blocks share the same completion estimate (ties under p95 threshold).
-        let k = (((n as f64 * 0.05).ceil() as usize).max(1)).min(4).min(n);
+        let k = ((n as f64 * 0.05).ceil() as usize).clamp(1, 4).min(n);
         scored.into_iter().take(k).map(|(id, _)| id).collect()
     }
 
