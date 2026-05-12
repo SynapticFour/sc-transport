@@ -39,6 +39,8 @@ pub struct ManifestAck {
     pub accepted: bool,
     pub message: Option<String>,
     pub received_chunks: Vec<u64>,
+    #[serde(default)]
+    pub chunk_hashes: Vec<[u8; 32]>, // index i → BLAKE3-Hash von Chunk i beim Receiver; leer = kein Delta-Info
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

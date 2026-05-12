@@ -87,16 +87,29 @@ impl FileReceiver {
             }
         }
 
-        write_framed(
-            &mut ctrl_send,
-            &ManifestAck {
-                accepted: true,
-                message: None,
-                received_chunks: received_chunks.iter().copied().collect(),
-            },
-        )
-        .await?;
+        // Delta-Hashing: wenn resume_partial aktiv und die Datei bereits existiert,
+        // hashe jeden vorhandenen Chunk und sende die Hashes mit.
+        let chunk_hashes: Vec<[u8; 32]> = if self.config.resume_partial
+            && tokio::fs::try_exists(&temp_path).await.unwrap_or(false)
+        {
+            let existing = tokio::fs::read(&temp_path).await.unwrap_or_default();
+            (0..manifest.num_chunks)
+                .map(|i| {
+                    let off = i as usize * manifest.chunk_size as usize;
+                    let end = (off + manifest.chunk_size as usize).min(existing.len());
+                    if end > off {
+                        *blake3::hash(&existing[off..end]).as_bytes()
+                    } else {
+                        [0u8; 32] // Chunk existiert nicht → Null-Hash → kein Match
+                    }
+                })
+                .collect()
+        } else {
+            vec![]
+        };
 
+        // Open server→client feedback control stream before ManifestAck so the client can
+        // `accept_bi` it as soon as `send_adaptive` starts, before any data uni streams arrive.
         let feedback_enabled = true;
         let feedback_every = std::env::var("SC_SCT_FEEDBACK_EVERY_CHUNKS")
             .ok()
@@ -111,6 +124,17 @@ impl FileReceiver {
         } else {
             None
         };
+
+        write_framed(
+            &mut ctrl_send,
+            &ManifestAck {
+                accepted: true,
+                message: None,
+                received_chunks: received_chunks.iter().copied().collect(),
+                chunk_hashes,
+            },
+        )
+        .await?;
 
         let mut out = OpenOptions::new()
             .create(true)

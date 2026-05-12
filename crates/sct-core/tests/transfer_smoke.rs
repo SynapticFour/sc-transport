@@ -225,6 +225,7 @@ async fn missing_final_ack_fails_in_strict_mode() {
                     accepted: true,
                     message: None,
                     received_chunks: Vec::new(),
+                    chunk_hashes: vec![],
                 },
             )
             .await

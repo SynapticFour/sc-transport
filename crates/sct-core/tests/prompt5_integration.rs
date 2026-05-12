@@ -114,6 +114,9 @@ async fn resume_stress_multiple_iterations() {
             tokio::fs::write(&src, vec![0xA5_u8; 512 * 1024])
                 .await
                 .expect("write");
+            // Stress repeated transfers with adaptive send. Use default chunk size: small
+            // chunk_size (e.g. 64 KiB) multiplies QUIC uni streams and can race the feedback
+            // control stream on CI, producing intermittent ChunkDescriptor decode errors.
             let (addr, recv_task) = start_receiver(recv_tmp.path().to_path_buf(), true).await;
             let client = SctEndpoint::client(TransportConfig {
                 bind_addr: "0.0.0.0:0".parse().expect("addr"),
@@ -125,7 +128,6 @@ async fn resume_stress_multiple_iterations() {
             let sender = FileSender::new(
                 conn,
                 SenderConfig {
-                    chunk_size: 64 * 1024,
                     ..Default::default()
                 },
             );

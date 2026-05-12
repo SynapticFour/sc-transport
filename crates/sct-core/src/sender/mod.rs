@@ -99,6 +99,32 @@ impl FileSender {
         }
         let skip: HashSet<u64> = ack.received_chunks.iter().copied().collect();
 
+        // Delta-Skip: Chunks die der Receiver bereits mit identischem Hash hat überspringen.
+        let skip: HashSet<u64> = if !ack.chunk_hashes.is_empty() {
+            let mut delta_skip = skip;
+            for idx in 0u64..manifest.num_chunks {
+                if delta_skip.contains(&idx) {
+                    continue;
+                }
+                if let Some(&receiver_hash) = ack.chunk_hashes.get(idx as usize) {
+                    if receiver_hash == [0u8; 32] {
+                        continue;
+                    }
+                    let off = idx as usize * self.config.chunk_size;
+                    let end = (off + self.config.chunk_size).min(full.len());
+                    if end > off {
+                        let local_hash = *blake3::hash(&full[off..end]).as_bytes();
+                        if local_hash == receiver_hash {
+                            delta_skip.insert(idx);
+                        }
+                    }
+                }
+            }
+            delta_skip
+        } else {
+            skip
+        };
+
         if true {
             self.send_adaptive(&full, &manifest, &skip, total_size)
                 .await?;

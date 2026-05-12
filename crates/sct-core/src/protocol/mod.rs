@@ -48,11 +48,13 @@ mod tests {
             accepted: true,
             message: Some("ok".to_string()),
             received_chunks: vec![0, 4],
+            chunk_hashes: vec![],
         };
         write_framed(&mut a, &msg).await.expect("write");
         let got: ManifestAck = read_framed(&mut b).await.expect("read");
         assert!(got.accepted);
         assert_eq!(got.message.as_deref(), Some("ok"));
         assert_eq!(got.received_chunks, vec![0, 4]);
+        assert!(got.chunk_hashes.is_empty());
     }
 }
