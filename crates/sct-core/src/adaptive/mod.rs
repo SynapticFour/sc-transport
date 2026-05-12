@@ -7,10 +7,16 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 mod optimization;
+mod predictive;
 
 pub use optimization::{
     estimate_completion, optimize_global_schedule, CompletionEstimate, CongestionSignal,
     OptimizationKpi, PathCorrelation, PathState, QueueModel, TransmissionDecision,
+};
+pub use predictive::{
+    forecast_congestion, smoothed_utility, CongestionForecast, ControlState, HysteresisThreshold,
+    MultiTimescaleClock, NetworkSample, OscillationDetector, PacketStabilization,
+    PredictiveStabilizer, StabilityBudget, StabilityTelemetry, TimescaleTier,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -233,6 +239,8 @@ pub struct MultiPathScheduler {
     pub known_reconstructable: HashSet<u64>,
     pub tokens: f64,
     pub last_token_refill: Instant,
+    /// Last primary-path raw utility (for predictive loop feedback).
+    pub last_primary_utility: f64,
     /// Per-path queue / pacing model for predicted delay.
     pub queue_models: Vec<QueueModel>,
     pub path_correlation: PathCorrelation,
@@ -322,12 +330,14 @@ impl MultiPathScheduler {
         target_send_rate: f64,
         congestion: &CongestionSignal,
         inflight: &[Packet],
+        stab: &PacketStabilization,
+        control: &mut ControlState,
     ) {
         if self.paths.is_empty() {
             return;
         }
         self.sync_queue_models_and_correlation();
-        self.refill_tokens(target_send_rate);
+        self.refill_tokens(target_send_rate * stab.pacing_scale);
         let packet_bytes = packet.meta.size as f64;
         let pkt_sz = packet.meta.size;
         if packet_bytes <= 2.0 * 1500.0 {
@@ -335,7 +345,7 @@ impl MultiPathScheduler {
             self.tokens = (self.tokens - packet_bytes).max(0.0);
         }
         let paths_snap = self.path_states_snapshot();
-        let util_vec: Vec<(usize, f64)> = (0..self.paths.len())
+        let util_raw: Vec<(usize, f64)> = (0..self.paths.len())
             .map(|i| {
                 let u = optimization::path_send_utility(
                     i,
@@ -350,6 +360,17 @@ impl MultiPathScheduler {
                 (i, u)
             })
             .collect();
+        let u_max_raw = util_raw.iter().map(|(_, u)| *u).fold(0.0_f64, f64::max);
+        control.utility_momentum =
+            predictive::smoothed_utility(0.26, u_max_raw, control.utility_momentum);
+        let denom = u_max_raw.max(1e-9);
+        let util_vec: Vec<(usize, f64)> = util_raw
+            .iter()
+            .map(|&(i, u)| {
+                let blended = 0.78 * u + 0.22 * control.utility_momentum * (u / denom);
+                (i, blended)
+            })
+            .collect();
         const EXPLORATION_EPSILON: f64 = 0.045;
         let primary_idx = optimization::pick_primary_path(
             &util_vec,
@@ -362,6 +383,12 @@ impl MultiPathScheduler {
             .find(|(i, _)| *i == primary_idx)
             .map(|(_, u)| *u)
             .unwrap_or(0.0);
+        let utility_primary_raw = util_raw
+            .iter()
+            .find(|(i, _)| *i == primary_idx)
+            .map(|(_, u)| *u)
+            .unwrap_or(utility_primary);
+        self.last_primary_utility = utility_primary_raw.max(1e-9);
         self.paths[primary_idx].send(packet.clone());
         let pacing_deficit = (2.0 * 1500.0 - self.tokens).max(0.0);
         {
@@ -391,7 +418,7 @@ impl MultiPathScheduler {
             .optimization_kpi
             .bytes_sent
             .saturating_add(pkt_sz as u64);
-        self.optimization_kpi.utility_sum += utility_primary;
+        self.optimization_kpi.utility_sum += utility_primary_raw;
 
         let unused_bw = self.estimate_unused_bandwidth(target_send_rate);
         let headroom_boost = if target_send_rate > 0.0 {
@@ -403,6 +430,11 @@ impl MultiPathScheduler {
         let mut speculative_limit =
             ((self.speculative_ratio + 0.15 * headroom_boost) * 100.0 * cq) as usize;
         speculative_limit = speculative_limit.clamp(8, 24);
+        speculative_limit = ((speculative_limit as f64)
+            * stab.speculative_scale
+            * stab.budget.max_duplication_rate
+            * stab.oscillation_damp)
+            .clamp(2.0, 64.0) as usize;
 
         let q_primary = self
             .queue_models
@@ -452,11 +484,23 @@ impl MultiPathScheduler {
                     inflight,
                     parity_shards,
                     tail_penalty,
-                )
+                ) * stab.dup_utility_scale
             })
             .unwrap_or(0.0);
 
-        let should_duplicate = !low_cost_fast
+        let allow_dup_under_suppression = packet.is_critical() || packet.nearing_deadline();
+        let dup_suppressed = stab.suppress_speculative_dup && !allow_dup_under_suppression;
+        let dynamic_dup_budget = if self.duplicate_budget == 0 {
+            0
+        } else {
+            let db = self.duplicate_budget as f64;
+            (db * stab.budget.max_inflight_growth)
+                .round()
+                .clamp(1.0, db) as usize
+        };
+
+        let should_duplicate = !dup_suppressed
+            && !low_cost_fast
             && !high_fec_large_payload
             && !deadline_only_large
             && u_dup > utility_primary
@@ -464,10 +508,9 @@ impl MultiPathScheduler {
             && ((packet.is_critical() && (utility_primary < 0.12 || packet.nearing_deadline()))
                 || (utility_primary < 0.08 && self.in_flight_duplicates < speculative_limit)
                 || (packet.nearing_deadline()
-                    && self.in_flight_duplicates < self.duplicate_budget / 3));
+                    && self.in_flight_duplicates < dynamic_dup_budget / 3));
 
-        if should_duplicate && !fec_sufficient && self.in_flight_duplicates < self.duplicate_budget
-        {
+        if should_duplicate && !fec_sufficient && self.in_flight_duplicates < dynamic_dup_budget {
             if let Some(redundant_idx) = secondary_idx {
                 let primary_kind = self.paths[primary_idx].path_kind();
                 let redundant_kind = self.paths[redundant_idx].path_kind();
@@ -687,6 +730,8 @@ pub struct ReceiverFeedback {
 pub struct HybridCongestionController {
     pub bandwidth_estimate: f64,
     pub min_rtt: Duration,
+    /// Last observed RTT sample (for forecasting / stabilization).
+    pub last_rtt: Duration,
     pub loss_rate: f64,
     pub rtt_gradient: f64,
     pub rtt_variance: f64,
@@ -702,6 +747,7 @@ impl Default for HybridCongestionController {
         Self {
             bandwidth_estimate: 1_000_000.0,
             min_rtt: Duration::from_millis(20),
+            last_rtt: Duration::from_millis(20),
             loss_rate: 0.0,
             rtt_gradient: 0.0,
             rtt_variance: 0.0,
@@ -734,6 +780,7 @@ impl HybridCongestionController {
     ) {
         self.bandwidth_estimate = bandwidth_bps.max(1.0);
         self.min_rtt = self.min_rtt.min(rtt);
+        self.last_rtt = rtt;
         self.loss_rate = loss_rate.clamp(0.0, 1.0);
         self.rtt_gradient =
             (rtt.as_secs_f64() - prev_rtt.as_secs_f64()) / prev_rtt.as_secs_f64().max(0.000_001);
@@ -794,12 +841,16 @@ pub enum TransferMode {
 
 pub struct StrategyEngine {
     pub mode: TransferMode,
+    aggressive_latch: bool,
+    pub aggressive_hysteresis: HysteresisThreshold,
 }
 
 impl Default for StrategyEngine {
     fn default() -> Self {
         Self {
             mode: TransferMode::Balanced,
+            aggressive_latch: false,
+            aggressive_hysteresis: HysteresisThreshold::default(),
         }
     }
 }
@@ -812,12 +863,21 @@ impl StrategyEngine {
         bandwidth_variance: f64,
         feedback: &ReceiverFeedback,
     ) {
-        self.mode = if loss < 0.02
-            && rtt < Duration::from_millis(30)
-            && bandwidth_variance < 0.15
-            && feedback.buffer_occupancy < 0.6
-            && feedback.cpu_load < 0.8
-        {
+        if loss > 0.12 || feedback.decode_delay > Duration::from_millis(200) {
+            self.aggressive_latch = false;
+            self.mode = TransferMode::Conservative;
+            return;
+        }
+        let rtt_ms = rtt.as_millis() as f64;
+        let score = (1.0 - loss * 3.0).clamp(0.0, 1.0)
+            * (1.0 - (rtt_ms / 85.0).min(1.0))
+            * (1.0 - bandwidth_variance.clamp(0.0, 1.0) * 0.35)
+            * (1.0 - feedback.buffer_occupancy.clamp(0.0, 1.0) * 0.45)
+            * (1.0 - feedback.cpu_load.clamp(0.0, 1.0) * 0.25);
+        self.aggressive_latch = self
+            .aggressive_hysteresis
+            .step_aggressive(self.aggressive_latch, score);
+        self.mode = if self.aggressive_latch {
             TransferMode::Aggressive
         } else if loss > 0.1 || feedback.decode_delay > Duration::from_millis(60) {
             TransferMode::Conservative
@@ -839,6 +899,12 @@ pub struct TransferMetrics {
     pub correlated_loss_penalties: f64,
     pub queue_prediction_accuracy: f64,
     pub completion_probability_accuracy: f64,
+    /// Stability telemetry: zero-crossings of utility vs its EWMA (oscillation proxy).
+    pub utility_oscillation_events: u64,
+    pub queue_overshoot_events: u64,
+    pub utility_stability_ewma: f64,
+    pub congestion_forecast_confidence: f64,
+    pub congestion_recovery_ticks: u64,
 }
 
 impl Default for TransferMetrics {
@@ -854,6 +920,11 @@ impl Default for TransferMetrics {
             correlated_loss_penalties: 0.0,
             queue_prediction_accuracy: 0.0,
             completion_probability_accuracy: 0.0,
+            utility_oscillation_events: 0,
+            queue_overshoot_events: 0,
+            utility_stability_ewma: 0.0,
+            congestion_forecast_confidence: 0.0,
+            congestion_recovery_ticks: 0,
         }
     }
 }
@@ -864,6 +935,7 @@ pub struct AutopilotRuntime {
     pub scheduler: MultiPathScheduler,
     pub fec: FecEncoder,
     pub metrics: TransferMetrics,
+    pub stabilizer: PredictiveStabilizer,
     pub completed_blocks: Arc<Mutex<HashSet<u64>>>,
     /// Data shards already handed to the multipath scheduler per FEC group (send-side progress).
     pub block_data_shards_sent: Arc<Mutex<HashMap<u64, usize>>>,
@@ -1367,20 +1439,31 @@ impl AutopilotRuntime {
             let start = Instant::now();
             let sig = self.build_congestion_signal();
             self.cc.apply_scheduler_signal(&sig);
+            let stab = self.stabilizer.prepare_packet(
+                Instant::now(),
+                &self.cc,
+                &self.scheduler,
+                &sig,
+                self.scheduler.last_primary_utility,
+            );
             let rate = self.cc.target_send_rate();
             let block_ctx =
                 self.block_context_for_schedule(&pkt, self.fec.data_shards, self.fec.parity_shards);
             let inflight_wire: &[Packet] = &[];
+            let tail_penalty =
+                self.metrics.p95_completion.as_secs_f64() * stab.ranking_pressure_scale;
             self.scheduler.distribute_and_send(
                 pkt.clone(),
                 &block_ctx,
-                self.metrics.p95_completion.as_secs_f64(),
+                tail_penalty,
                 self.fec.parity_ratio(),
                 self.fec.data_shards,
                 self.fec.parity_shards,
                 rate,
                 &sig,
                 inflight_wire,
+                &stab,
+                &mut self.stabilizer.control,
             );
             if !pkt.is_parity {
                 if let Ok(mut m) = self.block_data_shards_sent.lock() {
@@ -1419,6 +1502,14 @@ impl AutopilotRuntime {
             .scheduler
             .optimization_kpi
             .completion_probability_accuracy();
+        self.metrics.utility_oscillation_events =
+            self.stabilizer.telemetry.oscillation_zero_crossings;
+        self.metrics.queue_overshoot_events = self.stabilizer.telemetry.queue_overshoot_events;
+        self.metrics.utility_stability_ewma = self.stabilizer.telemetry.utility_stability_ewma;
+        self.metrics.congestion_forecast_confidence =
+            self.stabilizer.telemetry.forecast_confidence_ewma;
+        self.metrics.congestion_recovery_ticks =
+            self.stabilizer.telemetry.recovery_ticks_after_stress;
     }
 }
 
@@ -1591,6 +1682,7 @@ mod tests {
             known_reconstructable: HashSet::new(),
             tokens: 0.0,
             last_token_refill: Instant::now(),
+            last_primary_utility: 0.1,
             queue_models: vec![],
             path_correlation: PathCorrelation {
                 correlation_matrix: vec![],
@@ -1622,6 +1714,8 @@ mod tests {
             received_acks: 0,
             in_flight: 1,
         };
+        let stab = PacketStabilization::default();
+        let mut ctrl = ControlState::default();
         sched.distribute_and_send(
             pkt,
             &block,
@@ -1632,6 +1726,8 @@ mod tests {
             0.0,
             &CongestionSignal::default(),
             &[],
+            &stab,
+            &mut ctrl,
         );
     }
 
@@ -1645,6 +1741,7 @@ mod tests {
             known_reconstructable: HashSet::new(),
             tokens: 0.0,
             last_token_refill: Instant::now() - Duration::from_secs(10),
+            last_primary_utility: 0.1,
             queue_models: vec![],
             path_correlation: PathCorrelation {
                 correlation_matrix: vec![],

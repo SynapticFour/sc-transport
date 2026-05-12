@@ -67,6 +67,10 @@ pub struct QueueModel {
     pub ewma_delay: f64,
     pub inflight_bytes: u64,
     pub pacing_backlog: u64,
+    /// EWMA of `d(predicted_queue_delay)/dt` (per feedback tick / send).
+    pub queue_delay_velocity: f64,
+    prev_predicted_delay: f64,
+    last_bw: f64,
 }
 
 impl Default for QueueModel {
@@ -75,6 +79,9 @@ impl Default for QueueModel {
             ewma_delay: 0.0,
             inflight_bytes: 0,
             pacing_backlog: 0,
+            queue_delay_velocity: 0.0,
+            prev_predicted_delay: 0.0,
+            last_bw: 1.0,
         }
     }
 }
@@ -87,17 +94,36 @@ impl QueueModel {
         self.ewma_delay + ser + pacing_penalty
     }
 
+    /// Predictive queue saturation: current model + growth over `horizon_s`.
+    pub fn predicted_queue_at_horizon(&self, bandwidth_bps: f64, horizon_s: f64) -> f64 {
+        self.predicted_queue_delay(bandwidth_bps) + self.queue_delay_velocity * horizon_s.max(0.0)
+    }
+
     pub fn on_send(&mut self, bytes: usize, bandwidth_bps: f64, pacing_tokens_deficit: f64) {
         let bw = bandwidth_bps.max(1.0);
+        self.last_bw = bw;
         let inst = bytes as f64 / bw;
         const ALPHA: f64 = 0.22;
         self.ewma_delay = (1.0 - ALPHA) * self.ewma_delay + ALPHA * inst;
         self.inflight_bytes = self.inflight_bytes.saturating_add(bytes as u64);
         self.pacing_backlog = pacing_tokens_deficit.clamp(0.0, 2.0 * 1500.0) as u64;
+        let new_pred = self.predicted_queue_delay(bw);
+        const DT: f64 = 0.012;
+        let dv = (new_pred - self.prev_predicted_delay) / DT;
+        const V_ALPHA: f64 = 0.18;
+        self.queue_delay_velocity = (1.0 - V_ALPHA) * self.queue_delay_velocity + V_ALPHA * dv;
+        self.prev_predicted_delay = new_pred;
     }
 
     pub fn on_feedback_tick(&mut self, drain_bytes: u64) {
         self.inflight_bytes = self.inflight_bytes.saturating_sub(drain_bytes);
+        let bw = self.last_bw.max(1.0);
+        let new_pred = self.predicted_queue_delay(bw);
+        const DT: f64 = 0.02;
+        let dv = (new_pred - self.prev_predicted_delay) / DT;
+        const V_ALPHA: f64 = 0.12;
+        self.queue_delay_velocity = (1.0 - V_ALPHA) * self.queue_delay_velocity + V_ALPHA * dv;
+        self.prev_predicted_delay = new_pred;
     }
 }
 
@@ -314,7 +340,7 @@ pub fn path_send_utility(
         return 0.0;
     };
     let qm = queue_models.get(path_idx).copied().unwrap_or_default();
-    let q_delay = qm.predicted_queue_delay(p.bandwidth);
+    let q_delay = qm.predicted_queue_at_horizon(p.bandwidth, 0.55);
     let reduction = marginal_time_reduction_s(
         block,
         paths,
@@ -361,7 +387,7 @@ pub fn duplicate_send_utility(
         parity_shards,
         queue_models
             .get(primary_idx)
-            .map(|q| q.predicted_queue_delay(paths[primary_idx].bandwidth))
+            .map(|q| q.predicted_queue_at_horizon(paths[primary_idx].bandwidth, 0.55))
             .unwrap_or(0.0),
     );
     let reduction = marginal_survival.max(0.0)
@@ -370,7 +396,7 @@ pub fn duplicate_send_utility(
         * tail_urgency_multiplier(block, tail_penalty)
         * (1.0 - 0.55 * rho);
     let qm = queue_models.get(secondary_idx).copied().unwrap_or_default();
-    let q_delay = qm.predicted_queue_delay(paths[secondary_idx].bandwidth);
+    let q_delay = qm.predicted_queue_at_horizon(paths[secondary_idx].bandwidth, 0.55);
     let cost = bandwidth_cost_s(
         packet.meta.size as f64,
         paths[secondary_idx].bandwidth,

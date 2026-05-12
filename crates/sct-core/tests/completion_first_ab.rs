@@ -1,7 +1,7 @@
 use sct_core::adaptive::{
     AutopilotRuntime, FecEncoder, HybridCongestionController, MultiPathScheduler, OptimizationKpi,
-    Packet, PacketId, PacketMeta, PathCorrelation, ReceiverFeedback, StrategyEngine,
-    TransferMetrics, TransportPath,
+    Packet, PacketId, PacketMeta, PathCorrelation, PredictiveStabilizer, ReceiverFeedback,
+    StrategyEngine, TransferMetrics, TransportPath,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -61,6 +61,7 @@ fn runtime(completion_first_enabled: bool) -> AutopilotRuntime {
         known_reconstructable: HashSet::new(),
         tokens: 2.0 * 1500.0,
         last_token_refill: Instant::now() - Duration::from_millis(50),
+        last_primary_utility: 0.1,
         queue_models: Vec::new(),
         path_correlation: PathCorrelation {
             correlation_matrix: Vec::new(),
@@ -111,6 +112,7 @@ fn runtime(completion_first_enabled: bool) -> AutopilotRuntime {
             parity_shards: 2,
         },
         metrics: TransferMetrics::default(),
+        stabilizer: PredictiveStabilizer::default(),
         completed_blocks,
         block_data_shards_sent: Arc::new(Mutex::new(HashMap::new())),
         completion_first_enabled,

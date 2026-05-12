@@ -1,7 +1,8 @@
 use crate::adaptive::{
     compute_chunk_size, compute_fec_ratio, AutopilotRuntime, FecEncoder, MultiPathScheduler,
-    OptimizationKpi, Packet, PacketId, PacketMeta, PathCorrelation, QuicDatagramPath,
-    QuicStreamPath, ReceiverFeedback, StrategyEngine, TransferMetrics, TransferMode,
+    OptimizationKpi, Packet, PacketId, PacketMeta, PathCorrelation, PredictiveStabilizer,
+    QuicDatagramPath, QuicStreamPath, ReceiverFeedback, StrategyEngine, TransferMetrics,
+    TransferMode,
 };
 use crate::compression::maybe_compress;
 use crate::protocol::{
@@ -220,6 +221,7 @@ impl FileSender {
             // where elapsed≈0 would otherwise starve small packets (≤2 MTU) and hang QUIC tests.
             tokens: 2.0 * 1500.0,
             last_token_refill: Instant::now() - Duration::from_millis(50),
+            last_primary_utility: 0.12,
             queue_models: Vec::new(),
             path_correlation: PathCorrelation {
                 correlation_matrix: Vec::new(),
@@ -246,6 +248,7 @@ impl FileSender {
                 parity_shards: 1,
             },
             metrics: TransferMetrics::default(),
+            stabilizer: PredictiveStabilizer::default(),
             completed_blocks: Arc::new(StdMutex::new(HashSet::new())),
             block_data_shards_sent: Arc::new(StdMutex::new(HashMap::new())),
             completion_first_enabled: std::env::var("SC_SCT_COMPLETION_FIRST").ok().as_deref()
