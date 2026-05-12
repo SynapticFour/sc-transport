@@ -1,8 +1,9 @@
 use sct_core::adaptive::{
-    AutopilotRuntime, FecEncoder, HybridCongestionController, MultiPathScheduler, Packet, PacketId,
-    PacketMeta, ReceiverFeedback, StrategyEngine, TransferMetrics, TransportPath,
+    AutopilotRuntime, FecEncoder, HybridCongestionController, MultiPathScheduler, OptimizationKpi,
+    Packet, PacketId, PacketMeta, PathCorrelation, ReceiverFeedback, StrategyEngine, TransferMetrics,
+    TransportPath,
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -60,6 +61,12 @@ fn runtime(completion_first_enabled: bool) -> AutopilotRuntime {
         known_reconstructable: HashSet::new(),
         tokens: 2.0 * 1500.0,
         last_token_refill: Instant::now() - Duration::from_millis(50),
+        queue_models: Vec::new(),
+        path_correlation: PathCorrelation {
+            correlation_matrix: Vec::new(),
+        },
+        optimization_kpi: OptimizationKpi::default(),
+        exploration_seed: 0xA11CEu64,
     };
     scheduler.paths.push(Box::new(DummyPath {
         rtt: Duration::from_millis(18),
@@ -105,6 +112,7 @@ fn runtime(completion_first_enabled: bool) -> AutopilotRuntime {
         },
         metrics: TransferMetrics::default(),
         completed_blocks,
+        block_data_shards_sent: Arc::new(Mutex::new(HashMap::new())),
         completion_first_enabled,
     }
 }

@@ -1,9 +1,10 @@
 use sct_core::adaptive::{
-    AutopilotRuntime, FecEncoder, HybridCongestionController, MultiPathScheduler, Packet, PacketId,
-    PacketMeta, ReceiverFeedback, StrategyEngine, TransferMetrics, TransportPath,
+    AutopilotRuntime, FecEncoder, HybridCongestionController, MultiPathScheduler, OptimizationKpi,
+    Packet, PacketId, PacketMeta, PathCorrelation, ReceiverFeedback, StrategyEngine, TransferMetrics,
+    TransportPath,
 };
 use serde::Serialize;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -71,6 +72,12 @@ fn runtime(enabled: bool) -> AutopilotRuntime {
         known_reconstructable: HashSet::new(),
         tokens: 2.0 * 1500.0,
         last_token_refill: Instant::now() - Duration::from_millis(50),
+        queue_models: Vec::new(),
+        path_correlation: PathCorrelation {
+            correlation_matrix: Vec::new(),
+        },
+        optimization_kpi: OptimizationKpi::default(),
+        exploration_seed: 0xBEEFu64,
     };
     scheduler.paths.push(Box::new(DummyPath {
         rtt: Duration::from_millis(20),
@@ -116,6 +123,7 @@ fn runtime(enabled: bool) -> AutopilotRuntime {
         },
         metrics: TransferMetrics::default(),
         completed_blocks,
+        block_data_shards_sent: Arc::new(Mutex::new(HashMap::new())),
         completion_first_enabled: enabled,
     }
 }

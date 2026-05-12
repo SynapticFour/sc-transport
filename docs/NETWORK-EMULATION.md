@@ -28,6 +28,34 @@ Tunable knobs:
 - `RATE_MBIT`, `DELAY_MS`, `LOSS` for profile tuning
 - `INTERFACE` for Linux shaping (default `lo`)
 
+## sct-core loopback JSON bench (`bench-transfer`)
+
+For **library-level** loopback measurements (same wiring as `sct-core` integration tests: ephemeral `HOME` for TLS material, `127.0.0.1:0`, `FileSender` + `FileReceiver`, default `SenderConfig` / `ReceiverConfig`), use the `bench-transfer` example. It prints **one JSON line** with per-iteration timings, percentiles, and **aggregate** goodput over the whole run.
+
+**Sizing (important):** A single very large payload in this harness can stall or hit QUIC/runtime edge cases on some hosts. To keep the run stable while still moving **tens of megabytes** so handshake noise is small relative to payload, prefer **many iterations of ~1 MiB** (defaults below: 32 × 1 MiB ≈ **32 MiB** aggregate). Use **`aggregate_goodput_mbps`** as end-to-end goodput for that aggregate volume; per-iteration fields show jitter.
+
+Optional knobs match other tests: `SC_SCT_COMPLETION_FIRST=1`, `SC_SCT_ADAPTIVE_LOSS_HINT`, `SC_SCT_ADAPTIVE_BATCH_SIZE`, etc.
+
+```bash
+cd sc-transport
+# Defaults: 32 iterations × 1 MiB ≈ 32 MiB aggregate; --release recommended
+cargo run -p sct-core --example bench-transfer --release
+```
+
+Example output (representative; your numbers will vary):
+
+```json
+{"sct_core_version":"0.1.0","iterations":32,"payload_bytes":1048576,"aggregate_payload_bytes":33554432,"aggregate_wall_secs":0.276,"aggregate_goodput_mbps":973.0}
+```
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `SC_SCT_BENCH_ITERATIONS` | `32` | Number of separate transfers |
+| `SC_SCT_BENCH_BYTES` | `1048576` | Application payload size per transfer |
+| `SC_SCT_BENCH_TIMEOUT_SECS` | `180` | Per-iteration wall-clock limit |
+
+For **multi-gigabyte** or WAN-shaped runs, use the `make transfer-test` / `sct-cli` flows above so the full stack and disk path match production.
+
 ## Linux quick start (`tc netem`)
 
 Use the built-in matrix command:

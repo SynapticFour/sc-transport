@@ -1,7 +1,7 @@
 use crate::adaptive::{
     compute_chunk_size, compute_fec_ratio, AutopilotRuntime, FecEncoder, MultiPathScheduler,
-    Packet, PacketId, PacketMeta, QuicDatagramPath, QuicStreamPath, ReceiverFeedback,
-    StrategyEngine, TransferMetrics, TransferMode,
+    OptimizationKpi, Packet, PacketId, PacketMeta, PathCorrelation, QuicDatagramPath,
+    QuicStreamPath, ReceiverFeedback, StrategyEngine, TransferMetrics, TransferMode,
 };
 use crate::compression::maybe_compress;
 use crate::protocol::{
@@ -220,6 +220,12 @@ impl FileSender {
             // where elapsed≈0 would otherwise starve small packets (≤2 MTU) and hang QUIC tests.
             tokens: 2.0 * 1500.0,
             last_token_refill: Instant::now() - Duration::from_millis(50),
+            queue_models: Vec::new(),
+            path_correlation: PathCorrelation {
+                correlation_matrix: Vec::new(),
+            },
+            optimization_kpi: OptimizationKpi::default(),
+            exploration_seed: 0xC0FFEEu64,
         };
         // Beide Pfade sind immer aktiv. speculative_ratio bestimmt wie viele
         // Pakete dupliziert werden — startet bei 0.0 und wächst dynamisch
@@ -241,6 +247,7 @@ impl FileSender {
             },
             metrics: TransferMetrics::default(),
             completed_blocks: Arc::new(StdMutex::new(HashSet::new())),
+            block_data_shards_sent: Arc::new(StdMutex::new(HashMap::new())),
             completion_first_enabled: std::env::var("SC_SCT_COMPLETION_FIRST").ok().as_deref()
                 == Some("1"),
         };

@@ -29,3 +29,7 @@ sct-proto = { path = "../sct-proto" }
 [dev-dependencies]
 tempfile = "3"
 serial_test = "3"
+
+[[example]]
+name = "bench-transfer"
+path = "examples/bench_transfer.rs"
