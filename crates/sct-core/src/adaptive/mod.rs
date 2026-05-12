@@ -430,6 +430,7 @@ impl ReorderBuffer {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct FecEncoder {
     pub data_shards: usize,
     pub parity_shards: usize,
@@ -684,17 +685,12 @@ pub struct AutopilotRuntime {
 }
 
 impl AutopilotRuntime {
-    fn summarize_blocks(
-        &self,
-        packets: &[Packet],
-        completed: &HashSet<u64>,
-        canceled_redundant_sends: usize,
-    ) -> OptimizationSnapshot {
+    fn blocks_from_packets(&self, packets: &[Packet], completed: &HashSet<u64>) -> Vec<Block> {
         let mut by_block: HashMap<u64, usize> = HashMap::new();
         for p in packets {
             *by_block.entry(p.fec_group).or_insert(0) += 1;
         }
-        let blocks = by_block
+        by_block
             .into_iter()
             .map(|(id, shards)| Block {
                 id,
@@ -708,7 +704,16 @@ impl AutopilotRuntime {
                 },
                 in_flight: 0,
             })
-            .collect::<Vec<_>>();
+            .collect()
+    }
+
+    fn summarize_blocks(
+        &self,
+        packets: &[Packet],
+        completed: &HashSet<u64>,
+        canceled_redundant_sends: usize,
+    ) -> OptimizationSnapshot {
+        let blocks = self.blocks_from_packets(packets, completed);
         let mut completion_samples = blocks
             .iter()
             .map(|b| self.estimate_completion_time(b).as_secs_f64())
@@ -813,6 +818,20 @@ impl AutopilotRuntime {
         // blocks share the same completion estimate (ties under p95 threshold).
         let k = ((n as f64 * 0.05).ceil() as usize).clamp(1, 4).min(n);
         scored.into_iter().take(k).map(|(id, _)| id).collect()
+    }
+
+    pub fn fec_for_block(&self, fec_group: u64, straggler_ids: &[u64]) -> FecEncoder {
+        let (data, parity) = compute_fec_ratio(self.cc.loss_rate, self.cc.rtt_variance);
+        let is_straggler = straggler_ids.contains(&fec_group);
+        let parity = if is_straggler {
+            (parity + 1).min(data / 2).max(parity)
+        } else {
+            parity
+        };
+        FecEncoder {
+            data_shards: data,
+            parity_shards: parity,
+        }
     }
 
     fn optimize_transfer(
@@ -948,6 +967,18 @@ impl AutopilotRuntime {
                 ad.cmp(&bd)
             })
         });
+
+        let completed_for_hint = self
+            .completed_blocks
+            .lock()
+            .ok()
+            .map(|g| g.clone())
+            .unwrap_or_default();
+        let _hint_snapshot = self.summarize_blocks(&prioritized, &completed_for_hint, 0);
+        let blocks_hint = self.blocks_from_packets(&prioritized, &completed_for_hint);
+        let straggler_ids = self.detect_stragglers(&blocks_hint);
+        let base_fec = self.fec;
+
         tokio::spawn(async move {
             for p in prioritized {
                 let _ = tx_read.send(p).await;
@@ -962,14 +993,25 @@ impl AutopilotRuntime {
             }
         });
 
-        let fec = FecEncoder {
-            data_shards: self.fec.data_shards,
-            parity_shards: self.fec.parity_shards,
-        };
         tokio::spawn(async move {
-            let mut block = Vec::new();
+            let mut block: Vec<Packet> = Vec::new();
             while let Some(p) = rx_chunk.recv().await {
                 block.push(p);
+                let fec_group = block[0].fec_group;
+                let fec = if straggler_ids.contains(&fec_group) {
+                    let p_shards = (base_fec.parity_shards + 1)
+                        .min(base_fec.data_shards / 2)
+                        .max(base_fec.parity_shards);
+                    FecEncoder {
+                        data_shards: base_fec.data_shards,
+                        parity_shards: p_shards,
+                    }
+                } else {
+                    FecEncoder {
+                        data_shards: base_fec.data_shards,
+                        parity_shards: base_fec.parity_shards,
+                    }
+                };
                 if block.len() >= fec.data_shards.max(1) {
                     let encoded = fec.encode_block(&block);
                     for pkt in encoded {
@@ -979,6 +1021,18 @@ impl AutopilotRuntime {
                 }
             }
             if !block.is_empty() {
+                let fec_group = block[0].fec_group;
+                let fec = if straggler_ids.contains(&fec_group) {
+                    let p_shards = (base_fec.parity_shards + 1)
+                        .min(base_fec.data_shards / 2)
+                        .max(base_fec.parity_shards);
+                    FecEncoder {
+                        data_shards: base_fec.data_shards,
+                        parity_shards: p_shards,
+                    }
+                } else {
+                    base_fec
+                };
                 let encoded = fec.encode_block(&block);
                 for pkt in encoded {
                     let _ = tx_encode.send(pkt).await;
@@ -1153,6 +1207,24 @@ mod tests {
         let stable = compute_fec_ratio(0.01, 0.01);
         let harsh = compute_fec_ratio(0.15, 0.1);
         assert!(harsh.1 > stable.1);
+    }
+
+    #[test]
+    fn straggler_block_gets_more_parity() {
+        let base = FecEncoder {
+            data_shards: 8,
+            parity_shards: 2,
+        };
+        let straggler_parity = (base.parity_shards + 1)
+            .min(base.data_shards / 2)
+            .max(base.parity_shards);
+        assert!(
+            straggler_parity > base.parity_shards,
+            "Straggler muss mehr Parity bekommen: {} <= {}",
+            straggler_parity,
+            base.parity_shards
+        );
+        assert!(straggler_parity <= base.data_shards / 2);
     }
 
     #[test]
