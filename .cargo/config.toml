@@ -1,0 +1,4 @@
+# From repo root: `cargo test-sct-core` runs all sct-core integration binaries sequentially
+# (avoids QUIC/localhost contention when many `tests/*.rs` run in parallel).
+[alias]
+test-sct-core = "test -p sct-core --tests -- --test-threads=1"

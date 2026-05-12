@@ -46,8 +46,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test -p sct-core --test prompt5_integration
-      - run: cargo test -p sct-core --test transfer_smoke
+      - name: sct-core integration tests (sequential)
+        run: bash scripts/test_sct_core_integration.sh
 
   test-sct-rucio-plugin:
     if: github.actor != 'dependabot[bot]'

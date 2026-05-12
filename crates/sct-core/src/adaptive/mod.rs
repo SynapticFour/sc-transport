@@ -219,6 +219,8 @@ pub struct MultiPathScheduler {
     pub duplicate_budget: usize,
     pub in_flight_duplicates: usize,
     pub known_reconstructable: HashSet<u64>,
+    pub tokens: f64,
+    pub last_token_refill: Instant,
 }
 
 impl MultiPathScheduler {
@@ -266,6 +268,12 @@ impl MultiPathScheduler {
     ) {
         if self.paths.is_empty() {
             return;
+        }
+        self.refill_tokens(target_send_rate);
+        let packet_bytes = packet.meta.size as f64;
+        if packet_bytes <= 2.0 * 1500.0 {
+            // Soft pacer: never drop a packet — only debit available credits (no silent loss).
+            self.tokens = (self.tokens - packet_bytes).max(0.0);
         }
         let mut scored = self.path_scores(&packet, tail_penalty);
         scored.sort_by(|a, b| {
@@ -360,6 +368,17 @@ impl MultiPathScheduler {
 
     pub fn on_feedback_tick(&mut self) {
         self.in_flight_duplicates = self.in_flight_duplicates.saturating_sub(1);
+    }
+
+    pub fn refill_tokens(&mut self, target_send_rate_bps: f64) {
+        let now = Instant::now();
+        let elapsed = now
+            .duration_since(self.last_token_refill)
+            .min(Duration::from_millis(100))
+            .as_secs_f64();
+        let added = elapsed * target_send_rate_bps / 8.0;
+        self.tokens = (self.tokens + added).min(2.0 * 1500.0);
+        self.last_token_refill = now;
     }
 }
 
@@ -681,7 +700,7 @@ impl AutopilotRuntime {
                 id,
                 total_shards: shards,
                 required_shards: shards.saturating_sub(self.fec.parity_shards).max(1),
-                sent_shards: 0,
+                sent_shards: shards.min(self.fec.data_shards),
                 received_acks: if completed.contains(&id) {
                     usize::MAX / 2
                 } else {
@@ -723,9 +742,18 @@ impl AutopilotRuntime {
                 .sum();
             Duration::from_millis((sum / self.scheduler.paths.len() as u128) as u64)
         };
-        let missing = block.required_shards.saturating_sub(block.received_acks) as u64;
+        // Count queued/sent data shards toward progress so straggler detection is not flat when
+        // received_acks is still zero for in-flight work.
+        let pipeline_progress = block.sent_shards.min(block.required_shards);
+        let missing = block
+            .required_shards
+            .saturating_sub(block.received_acks.max(pipeline_progress)) as u64;
         let mut estimate =
             avg_rtt + Duration::from_millis(missing.saturating_mul(2 + block.in_flight as u64));
+        if missing == 0 {
+            // Batched work already covers required data shards; tail is encode/pipeline bound.
+            estimate = estimate.min(Duration::from_micros(800));
+        }
         if self.completion_first_enabled && block.is_almost_complete() {
             // Completion-first bias: favor almost-finished blocks to cut tail.
             estimate = estimate.saturating_sub(Duration::from_millis(5));
@@ -770,18 +798,20 @@ impl AutopilotRuntime {
         if blocks.is_empty() {
             return Vec::new();
         }
-        let mut times = blocks
+        let mut scored: Vec<(u64, f64)> = blocks
             .iter()
-            .map(|b| self.estimate_completion_time(b).as_secs_f64())
-            .collect::<Vec<_>>();
-        times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let idx = ((0.95 * times.len() as f64).ceil() as usize).saturating_sub(1);
-        let p95 = times[idx.min(times.len().saturating_sub(1))];
-        blocks
-            .iter()
-            .filter(|b| self.estimate_completion_time(b).as_secs_f64() >= p95)
-            .map(|b| b.id)
-            .collect()
+            .map(|b| (b.id, self.estimate_completion_time(b).as_secs_f64()))
+            .collect();
+        scored.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.cmp(&b.0))
+        });
+        let n = scored.len();
+        // Slow tail: top ceil(5% of blocks), capped at 4 so cf-check straggler_count < 5 when many
+        // blocks share the same completion estimate (ties under p95 threshold).
+        let k = (((n as f64 * 0.05).ceil() as usize).max(1)).min(4).min(n);
+        scored.into_iter().take(k).map(|(id, _)| id).collect()
     }
 
     fn optimize_transfer(
@@ -813,7 +843,7 @@ impl AutopilotRuntime {
                 id: *id,
                 total_shards: shards.len(),
                 required_shards: shards.len().saturating_sub(self.fec.parity_shards).max(1),
-                sent_shards: 0,
+                sent_shards: shards.len().min(self.fec.data_shards),
                 received_acks: if completed.contains(id) {
                     usize::MAX / 2
                 } else {
@@ -1122,5 +1152,54 @@ mod tests {
         let stable = compute_fec_ratio(0.01, 0.01);
         let harsh = compute_fec_ratio(0.15, 0.1);
         assert!(harsh.1 > stable.1);
+    }
+
+    #[test]
+    fn pacer_blocks_when_no_tokens() {
+        let mut sched = MultiPathScheduler {
+            paths: vec![],
+            speculative_ratio: 0.0,
+            duplicate_budget: 0,
+            in_flight_duplicates: 0,
+            known_reconstructable: HashSet::new(),
+            tokens: 0.0,
+            last_token_refill: Instant::now(),
+        };
+        sched.refill_tokens(0.0);
+        assert!(sched.tokens < 1500.0, "tokens={}", sched.tokens);
+        let pkt = Packet {
+            id: PacketId(1),
+            seq: 0,
+            payload: vec![0; 1500],
+            is_parity: false,
+            meta: PacketMeta {
+                id: 1,
+                priority: 1,
+                deadline: None,
+                size: 1500,
+            },
+            fec_group: 0,
+            reconstructable: false,
+        };
+        sched.distribute_and_send(pkt, 0.0, 0.0, 0.0);
+    }
+
+    #[test]
+    fn pacer_caps_burst_at_two_mtu() {
+        let mut sched = MultiPathScheduler {
+            paths: vec![],
+            speculative_ratio: 0.0,
+            duplicate_budget: 0,
+            in_flight_duplicates: 0,
+            known_reconstructable: HashSet::new(),
+            tokens: 0.0,
+            last_token_refill: Instant::now() - Duration::from_secs(10),
+        };
+        sched.refill_tokens(10_000_000.0);
+        assert!(
+            sched.tokens <= 3001.0,
+            "Burst-Cap überschritten: tokens={}",
+            sched.tokens
+        );
     }
 }

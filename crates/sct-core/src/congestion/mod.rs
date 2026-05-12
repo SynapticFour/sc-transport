@@ -93,7 +93,14 @@ impl ScientificBbrController {
         self.ack_events_in_round = self.ack_events_in_round.saturating_add(1);
         let delivery_rate_bps = (bytes as f64 * 8.0) / elapsed;
         self.bandwidth_samples.push_back((now, delivery_rate_bps));
-        while self.bandwidth_samples.len() > 10 {
+        let bw_window = (self.min_rtt * 10).max(Duration::from_secs(2));
+        let cutoff = now.checked_sub(bw_window).unwrap_or(now);
+        while self
+            .bandwidth_samples
+            .front()
+            .map(|(t, _)| *t < cutoff)
+            .unwrap_or(false)
+        {
             self.bandwidth_samples.pop_front();
         }
         let previous_max = self.max_bandwidth_bps;
@@ -385,5 +392,43 @@ mod tests {
         );
         assert!(c.window() >= 1200 * 4);
         assert!(c.app_limited_samples >= 1);
+    }
+
+    #[test]
+    fn time_window_evicts_stale_samples() {
+        let cfg = Arc::new(SciBbrConfig::default());
+        let mut c = ScientificBbrController::new(cfg, Instant::now(), 1200);
+        let rtt = Duration::from_millis(50);
+
+        // Schritt 1: 5 alte Samples mit hoher Bandwidth einspeisen (t=0)
+        let t0 = Instant::now();
+        for i in 0..5 {
+            c.on_acked(
+                125_000 * 100, // 100 MB/s — absichtlich hoch
+                rtt,
+                t0 + Duration::from_millis(i * 50),
+                false,
+            );
+        }
+        let stale_bw = c.max_bandwidth_bps;
+        assert!(stale_bw > 0.0);
+
+        // Schritt 2: Samples die älter als 10×rtt + 2s sind einfrieren lassen
+        // Dann ein neues Sample mit sehr niedriger Bandwidth einspeisen
+        let t_new = t0 + Duration::from_secs(3); // > 2s window
+        c.on_acked(
+            100, // winzige Bandwidth
+            rtt,
+            t_new,
+            false,
+        );
+
+        // Der alte Hochspitzen-Wert muss jetzt aus dem Fenster gefallen sein
+        assert!(
+            c.max_bandwidth_bps < stale_bw,
+            "Stale sample wurde nicht evicted: {} >= {}",
+            c.max_bandwidth_bps,
+            stale_bw
+        );
     }
 }

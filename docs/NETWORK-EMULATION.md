@@ -275,3 +275,20 @@ python3 scripts/compare_completion_campaign.py \
   --out-json results/completion-campaign-compare.json \
   --out-md results/completion-campaign-compare.md
 ```
+
+## sct-core: Integrationstests zuverlässig ausführen
+
+Mehrere QUIC-Loopback-Tests unter `crates/sct-core/tests/` starten als **eigene Test-Binaries**. Läuft `cargo test -p sct-core` ohne Einschränkung, können sie **parallel** laufen und sich gegenseitig stören (lange Laufzeit oder „Hängen“).
+
+Empfehlungen:
+
+1. **Sequentiell (robust):**  
+   `bash scripts/test_sct_core_integration.sh`  
+   (setzt `RUST_TEST_THREADS=1` und führt nacheinander `cargo test -p sct-core --test <name>` aus.)
+
+   Alternativ: `cargo test-sct-core` (Alias in `.cargo/config.toml` — serialisiert vor allem den Harness **innerhalb** eines Test-Binaries; für harte Isolation das Shell-Script bevorzugen.)
+
+2. **Timeouts:** Die Tests `prompt5_integration`, `transfer_smoke`, `completion_*` nutzen `tests/common.rs` → `with_timeout`: bei echtem Deadlock schlägt der Test nach spätestens 60–300 s fehl statt endlos zu laufen.
+
+3. **Nur Bibliothek (schnell):**  
+   `cargo test -p sct-core --lib`

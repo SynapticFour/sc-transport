@@ -9,6 +9,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+mod common;
+
 struct DummyPath {
     rtt: Duration,
     bw: f64,
@@ -67,6 +69,8 @@ fn runtime(enabled: bool) -> AutopilotRuntime {
         duplicate_budget: 300,
         in_flight_duplicates: 0,
         known_reconstructable: HashSet::new(),
+        tokens: 2.0 * 1500.0,
+        last_token_refill: Instant::now() - Duration::from_millis(50),
     };
     scheduler.paths.push(Box::new(DummyPath {
         rtt: Duration::from_millis(20),
@@ -127,17 +131,33 @@ fn maybe_write_artifact(name: &str, body: &str) {
 
 #[tokio::test]
 async fn completion_campaign_metrics() {
-    let enabled = std::env::var("SC_SCT_COMPLETION_FIRST").ok().as_deref() != Some("0");
-    let mut rt = runtime(enabled);
-    rt.run_pipeline(packets()).await;
-    let s = CompletionCampaignSummary {
-        completion_first: enabled,
-        p50_completion_ms: rt.metrics.p50_completion.as_secs_f64() * 1000.0,
-        p95_completion_ms: rt.metrics.p95_completion.as_secs_f64() * 1000.0,
-        p99_completion_ms: rt.metrics.p99_completion.as_secs_f64() * 1000.0,
-        straggler_count: rt.metrics.straggler_count,
-        canceled_redundant_sends: rt.metrics.canceled_redundant_sends,
-    };
-    let body = serde_json::to_string_pretty(&s).expect("serialize completion campaign summary");
-    maybe_write_artifact("completion-campaign-summary", &body);
+    common::with_timeout("completion_campaign_metrics", 120, async {
+        let enabled = std::env::var("SC_SCT_COMPLETION_FIRST").ok().as_deref() != Some("0");
+        let mut rt = runtime(enabled);
+        rt.run_pipeline(packets()).await;
+        let s = CompletionCampaignSummary {
+            completion_first: enabled,
+            p50_completion_ms: rt.metrics.p50_completion.as_secs_f64() * 1000.0,
+            p95_completion_ms: rt.metrics.p95_completion.as_secs_f64() * 1000.0,
+            p99_completion_ms: rt.metrics.p99_completion.as_secs_f64() * 1000.0,
+            straggler_count: rt.metrics.straggler_count,
+            canceled_redundant_sends: rt.metrics.canceled_redundant_sends,
+        };
+        let body =
+            serde_json::to_string_pretty(&s).expect("serialize completion campaign summary");
+        maybe_write_artifact("completion-campaign-summary", &body);
+        if enabled {
+            assert!(
+                s.p99_completion_ms < 5.0,
+                "cf-check: p99_completion_ms expected < 5ms, got {}",
+                s.p99_completion_ms
+            );
+            assert!(
+                s.straggler_count < 5,
+                "cf-check: straggler_count expected < 5, got {}",
+                s.straggler_count
+            );
+        }
+    })
+    .await;
 }

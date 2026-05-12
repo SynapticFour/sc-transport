@@ -162,11 +162,7 @@ impl FileSender {
         let feedback_state = Arc::new(Mutex::new(None::<ReceiverFeedbackFrame>));
         let feedback_listener_conn = self.connection.clone();
         let feedback_state_bg = feedback_state.clone();
-        let feedback_listener_enabled = true;
         let feedback_listener = tokio::spawn(async move {
-            if !feedback_listener_enabled {
-                return;
-            }
             if let Ok((_send, mut recv)) = feedback_listener_conn.accept_control_stream().await {
                 while let Ok(frame) = read_framed::<ReceiverFeedbackFrame, _>(&mut recv).await {
                     let mut guard = feedback_state_bg.lock().await;
@@ -194,6 +190,10 @@ impl FileSender {
             duplicate_budget: 0,
             in_flight_duplicates: 0,
             known_reconstructable: Default::default(),
+            // Full bucket: first distribute_and_send can happen in the same tick as construction,
+            // where elapsed≈0 would otherwise starve small packets (≤2 MTU) and hang QUIC tests.
+            tokens: 2.0 * 1500.0,
+            last_token_refill: Instant::now() - Duration::from_millis(50),
         };
         scheduler
             .paths

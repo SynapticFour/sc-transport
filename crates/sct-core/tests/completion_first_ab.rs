@@ -6,6 +6,8 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+mod common;
+
 struct DummyPath {
     rtt: Duration,
     bw: f64,
@@ -56,6 +58,8 @@ fn runtime(completion_first_enabled: bool) -> AutopilotRuntime {
         duplicate_budget: 256,
         in_flight_duplicates: 0,
         known_reconstructable: HashSet::new(),
+        tokens: 2.0 * 1500.0,
+        last_token_refill: Instant::now() - Duration::from_millis(50),
     };
     scheduler.paths.push(Box::new(DummyPath {
         rtt: Duration::from_millis(18),
@@ -107,22 +111,25 @@ fn runtime(completion_first_enabled: bool) -> AutopilotRuntime {
 
 #[tokio::test]
 async fn completion_first_reduces_tail_and_waste() {
-    let packets = make_packets();
-    let mut baseline = runtime(false);
-    baseline.run_pipeline(packets.clone()).await;
-    let mut completion = runtime(true);
-    completion.run_pipeline(packets).await;
+    common::with_timeout("completion_first_reduces_tail_and_waste", 120, async {
+        let packets = make_packets();
+        let mut baseline = runtime(false);
+        baseline.run_pipeline(packets.clone()).await;
+        let mut completion = runtime(true);
+        completion.run_pipeline(packets).await;
 
-    assert!(
-        completion.metrics.canceled_redundant_sends > baseline.metrics.canceled_redundant_sends
-    );
-    assert!(completion.metrics.straggler_count > 0);
-    assert!(completion.metrics.p95_completion <= completion.metrics.p99_completion);
-    eprintln!(
-        "completion_first_ab baseline_p95={:?} completion_p95={:?} canceled={} stragglers={}",
-        baseline.metrics.p95_completion,
-        completion.metrics.p95_completion,
-        completion.metrics.canceled_redundant_sends,
-        completion.metrics.straggler_count
-    );
+        assert!(
+            completion.metrics.canceled_redundant_sends > baseline.metrics.canceled_redundant_sends
+        );
+        assert!(completion.metrics.straggler_count > 0);
+        assert!(completion.metrics.p95_completion <= completion.metrics.p99_completion);
+        eprintln!(
+            "completion_first_ab baseline_p95={:?} completion_p95={:?} canceled={} stragglers={}",
+            baseline.metrics.p95_completion,
+            completion.metrics.p95_completion,
+            completion.metrics.canceled_redundant_sends,
+            completion.metrics.straggler_count
+        );
+    })
+    .await;
 }
