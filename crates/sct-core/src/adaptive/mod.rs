@@ -373,15 +373,25 @@ impl MultiPathScheduler {
         let util_vec: Vec<(usize, f64)> = util_raw
             .iter()
             .map(|&(i, u)| {
-                let blended = 0.78 * u + 0.22 * control.utility_momentum * (u / denom);
+                // Weniger momentum-Gewicht: aktuelle Utility dominiert stärker.
+                // Verhindert dass ein schlechter momentum-Wert den Pfad-Score verzerrt.
+                let blended = 0.88 * u + 0.12 * control.utility_momentum * (u / denom);
                 (i, blended)
             })
             .collect();
-        const EXPLORATION_EPSILON: f64 = 0.045;
+        // Kleine Payloads: weniger Exploration (Varianz schädlicher als Benefit).
+        // Große Payloads: mehr Exploration ok (Scheduling-Fehler hat weniger Gewicht).
+        let exploration_epsilon = if packet.meta.size < 64 * 1024 {
+            0.01 // tiny/small: fast deterministisch
+        } else if packet.meta.size < 512 * 1024 {
+            0.03 // medium
+        } else {
+            0.05 // large
+        };
         let primary_idx = optimization::pick_primary_path(
             &util_vec,
             &mut self.exploration_seed,
-            EXPLORATION_EPSILON,
+            exploration_epsilon,
         )
         .unwrap_or(0);
         let utility_primary = util_vec
