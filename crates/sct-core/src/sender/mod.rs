@@ -251,8 +251,7 @@ impl FileSender {
             stabilizer: PredictiveStabilizer::default(),
             completed_blocks: Arc::new(StdMutex::new(HashSet::new())),
             block_data_shards_sent: Arc::new(StdMutex::new(HashMap::new())),
-            completion_first_enabled: std::env::var("SC_SCT_COMPLETION_FIRST").ok().as_deref()
-                == Some("1"),
+            completion_first_enabled: true,
         };
         let rtt = self.connection.rtt();
         let prev_rtt = Duration::from_millis(self.config.chunk_size as u64 % 50 + 10);

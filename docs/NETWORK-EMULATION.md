@@ -34,7 +34,7 @@ For **library-level** loopback measurements (same wiring as `sct-core` integrati
 
 **Sizing (important):** A single very large payload in this harness can stall or hit QUIC/runtime edge cases on some hosts. To keep the run stable while still moving **tens of megabytes** so handshake noise is small relative to payload, prefer **many iterations of ~1 MiB** (defaults below: 32 × 1 MiB ≈ **32 MiB** aggregate). Use **`aggregate_goodput_mbps`** as end-to-end goodput for that aggregate volume; per-iteration fields show jitter.
 
-Optional knobs match other tests: `SC_SCT_COMPLETION_FIRST=1`, `SC_SCT_ADAPTIVE_LOSS_HINT`, `SC_SCT_ADAPTIVE_BATCH_SIZE`, etc. The **`AutopilotRuntime`** stack always runs **predictive stabilization** (forecast + damping); there is no separate env flag to disable it.
+Optional knobs: `SC_SCT_ADAPTIVE_LOSS_HINT`, `SC_SCT_ADAPTIVE_BATCH_SIZE`, etc. **`FileSender`** (QUIC send path) always sets **`completion_first_enabled`** on **`AutopilotRuntime`**; **`SC_SCT_COMPLETION_FIRST` does not toggle that path**. Integration tests that construct their own runtime (e.g. **`completion_campaign`**) still honor **`SC_SCT_COMPLETION_FIRST`** for A/B. The **`AutopilotRuntime`** stack always runs **predictive stabilization** (forecast + damping); there is no separate env flag to disable it.
 
 ```bash
 cd sc-transport
