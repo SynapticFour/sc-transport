@@ -336,6 +336,12 @@ impl MultiPathScheduler {
         if self.paths.is_empty() {
             return;
         }
+        // Parity packets are produced by `FecEncoder::encode_block` for scheduler metrics, but the
+        // receiver protocol still expects every data stream to start with a `ChunkDescriptor`
+        // frame. Skip wire transmission until parity framing is negotiated end-to-end.
+        if packet.is_parity {
+            return;
+        }
         self.sync_queue_models_and_correlation();
         self.refill_tokens(target_send_rate * stab.pacing_scale);
         let packet_bytes = packet.meta.size as f64;

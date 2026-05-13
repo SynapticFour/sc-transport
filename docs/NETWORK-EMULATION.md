@@ -70,6 +70,10 @@ The adaptive **`AutopilotRuntime`** path (used by **`FileSender`**, **`bench-tra
 | **`HybridCongestionController`** | `adaptive/mod.rs` | **`last_rtt`** (and existing loss / gradient / variance) feed samples for forecasting. |
 | **`StrategyEngine`** | `adaptive/mod.rs` | **`HysteresisThreshold`** on an aggressiveness score (enter ≈0.8, exit ≈0.5 by default) to avoid mode flapping; hard fallback to **Conservative** on very high loss or long decode delay. |
 
+### FEC parity (encode vs wire)
+
+**`FecEncoder::encode_block`** may append parity **`Packet`s** (`is_parity = true`) so completion-first and KPI paths stay aware of FEC. **`MultiPathScheduler::distribute_and_send`** returns immediately for **`packet.is_parity`**, so parity is **not** written to QUIC streams until a dedicated parity framing exists. The **`FileReceiver`** path decodes a **`ChunkDescriptor`** on every accepted data stream (`receiver/mod.rs`); raw XOR blobs would not parse as chunk metadata.
+
 ### Metrics after a pipeline
 
 **`TransferMetrics`** (filled at end of **`run_pipeline`**) additionally exposes stability-oriented fields:

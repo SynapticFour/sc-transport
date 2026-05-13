@@ -278,9 +278,6 @@ impl FileSender {
         let (data, parity) = compute_fec_ratio(loss_hint, runtime.cc.rtt_variance);
         runtime.fec.data_shards = data;
         runtime.fec.parity_shards = parity;
-        // Wire compatibility: current receiver expects chunk descriptors only.
-        // Disable parity shard emission on this path until parity framing is negotiated.
-        runtime.fec.parity_shards = 0;
 
         let mut packets = Vec::new();
         let tuned_chunk = compute_chunk_size(rtt, loss_hint);
@@ -493,7 +490,6 @@ async fn apply_feedback_if_present(
             TransferMode::Balanced => parity,
             TransferMode::Conservative => parity.saturating_sub(1).max(1),
         };
-        runtime.fec.parity_shards = 0;
         let headroom = runtime.cc.estimate_unused_bandwidth();
         runtime.scheduler.speculative_ratio = if headroom > runtime.cc.bandwidth_estimate * 0.25 {
             0.20

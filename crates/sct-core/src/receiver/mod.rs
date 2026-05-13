@@ -150,6 +150,8 @@ impl FileReceiver {
         let remaining = manifest
             .num_chunks
             .saturating_sub(received_chunks.len() as u64);
+        // Each accepted data stream begins with a framed `ChunkDescriptor` (see below). Sender
+        // must not place raw FEC parity blobs on the wire until parity transport framing exists.
         for _ in 0..remaining {
             let mut stream = conn.accept_data_stream().await?;
             let mut len_buf = [0_u8; 4];
