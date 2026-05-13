@@ -147,12 +147,24 @@ impl FileReceiver {
             out.set_len(manifest.total_size).await?;
         }
 
-        let remaining = manifest
-            .num_chunks
-            .saturating_sub(received_chunks.len() as u64);
-        // Each accepted data stream begins with a framed `ChunkDescriptor` (see below). Sender
-        // must not place raw FEC parity blobs on the wire until parity transport framing exists.
-        for _ in 0..remaining {
+        let total_chunks = manifest.num_chunks as usize;
+        // Adaptive / multipath senders may open extra data streams (e.g. duplicates). A fixed
+        // `remaining` stream count would stop early when a duplicate chunk consumes a slot,
+        // leaving holes and a bad final file hash — keep accepting until all indices are filled.
+        let max_streams = total_chunks
+            .saturating_sub(received_chunks.len())
+            .saturating_add(128);
+        let mut accepted_streams = 0usize;
+        while received_chunks.len() < total_chunks {
+            if accepted_streams >= max_streams {
+                return Err(anyhow::anyhow!(
+                    "incomplete transfer: {} of {} chunk indices after {} data streams",
+                    received_chunks.len(),
+                    total_chunks,
+                    accepted_streams
+                ));
+            }
+            accepted_streams += 1;
             let mut stream = conn.accept_data_stream().await?;
             let mut len_buf = [0_u8; 4];
             stream.read_exact(&mut len_buf).await?;
@@ -179,7 +191,7 @@ impl FileReceiver {
             out.write_all(&chunk).await?;
             received_chunks.insert(desc.index);
             if let Some(ref mut fb_send) = feedback_stream {
-                if received_chunks.len() > 0
+                if !received_chunks.is_empty()
                     && (received_chunks.len() as u64).is_multiple_of(feedback_every)
                 {
                     // Berechne fehlende Chunks: expected minus already received.
