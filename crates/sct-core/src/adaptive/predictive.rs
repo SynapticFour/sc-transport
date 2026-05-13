@@ -3,6 +3,9 @@
 //! Treats the transport stack as a sampled control system: forecast build-up,
 //! damp aggressive reactions, hysteresis on mode switches, and cap speculative
 //! work using a dynamic stability budget.
+//!
+//! Operator-oriented overview (bench flows, metrics, tuning): see
+//! `docs/NETWORK-EMULATION.md` → **Predictive congestion stabilization**.
 
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};

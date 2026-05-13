@@ -34,7 +34,7 @@ For **library-level** loopback measurements (same wiring as `sct-core` integrati
 
 **Sizing (important):** A single very large payload in this harness can stall or hit QUIC/runtime edge cases on some hosts. To keep the run stable while still moving **tens of megabytes** so handshake noise is small relative to payload, prefer **many iterations of ~1 MiB** (defaults below: 32 × 1 MiB ≈ **32 MiB** aggregate). Use **`aggregate_goodput_mbps`** as end-to-end goodput for that aggregate volume; per-iteration fields show jitter.
 
-Optional knobs match other tests: `SC_SCT_COMPLETION_FIRST=1`, `SC_SCT_ADAPTIVE_LOSS_HINT`, `SC_SCT_ADAPTIVE_BATCH_SIZE`, etc.
+Optional knobs match other tests: `SC_SCT_COMPLETION_FIRST=1`, `SC_SCT_ADAPTIVE_LOSS_HINT`, `SC_SCT_ADAPTIVE_BATCH_SIZE`, etc. The **`AutopilotRuntime`** stack always runs **predictive stabilization** (forecast + damping); there is no separate env flag to disable it.
 
 ```bash
 cd sc-transport
@@ -55,6 +55,37 @@ Example output (representative; your numbers will vary):
 | `SC_SCT_BENCH_TIMEOUT_SECS` | `180` | Per-iteration wall-clock limit |
 
 For **multi-gigabyte** or WAN-shaped runs, use the `make transfer-test` / `sct-cli` flows above so the full stack and disk path match production.
+
+## Predictive congestion stabilization (`sct-core`)
+
+The adaptive **`AutopilotRuntime`** path (used by **`FileSender`**, **`bench-transfer`**, and the **`completion_*`** / **`prompt5_integration`** tests) layers **forecasting and control-loop damping** on top of utility-based multipath scheduling. Goal: **react less, anticipate more**—reduce oscillation and speculative overload before loss and RTT spikes dominate.
+
+### What runs where
+
+| Piece | Location | Role |
+|-------|----------|------|
+| **`PredictiveStabilizer`** | `crates/sct-core/src/adaptive/predictive.rs` | Ring buffer of **`NetworkSample`** → **`forecast_congestion`** → per-send **`PacketStabilization`**; EWMA **`ControlState`** (utility / pacing / duplication momentum); **`OscillationDetector`**; **`StabilityTelemetry`**; **`MultiTimescaleClock`** (fast ≈12 ms pacing, medium ≈120 ms speculative envelope, slow ≈1.5 s ranking bias). |
+| **`PacketStabilization`** | same module | Passed into **`MultiPathScheduler::distribute_and_send`**: scales token refill, speculative duplicate caps, duplicate utility, optional **suppress speculative dup** when forecast queue growth is high. |
+| **`QueueModel`** | `crates/sct-core/src/adaptive/optimization.rs` | **`queue_delay_velocity`** and **`predicted_queue_at_horizon`** so path utilities see **queue saturation ahead of a ~0.55 s horizon**, not only instantaneous delay. |
+| **`HybridCongestionController`** | `adaptive/mod.rs` | **`last_rtt`** (and existing loss / gradient / variance) feed samples for forecasting. |
+| **`StrategyEngine`** | `adaptive/mod.rs` | **`HysteresisThreshold`** on an aggressiveness score (enter ≈0.8, exit ≈0.5 by default) to avoid mode flapping; hard fallback to **Conservative** on very high loss or long decode delay. |
+
+### Metrics after a pipeline
+
+**`TransferMetrics`** (filled at end of **`run_pipeline`**) additionally exposes stability-oriented fields:
+
+- `utility_oscillation_events`, `queue_overshoot_events`
+- `utility_stability_ewma`, `congestion_forecast_confidence`, `congestion_recovery_ticks`
+
+Use them when comparing **`completion_campaign`** A/B or custom benches—not only peak goodput.
+
+### Tuning
+
+Timescales, forecast blend (≈200–1000 ms effective horizon), hysteresis defaults, and suppression thresholds are **constants in Rust** (`predictive.rs`, `MultiPathScheduler`). There are **no extra `SC_SCT_*` env vars** for the stabilizer today; the same completion-first / loss-hint / batch knobs as in the table above still apply.
+
+### Related commands
+
+Same as elsewhere in this doc: **`bench-transfer`**, **`completion_campaign`**, and **`bash scripts/test_sct_core_integration.sh`** all exercise **`AutopilotRuntime`** with stabilization enabled.
 
 ## Linux quick start (`tc netem`)
 
@@ -320,3 +351,6 @@ Empfehlungen:
 
 3. **Nur Bibliothek (schnell):**  
    `cargo test -p sct-core --lib`
+
+4. **Sehr langer Workspace-Lauf:** `cargo test --workspace` baut u.a. **`sc-transport-datagrams`** mit; der Test **`transparency_final_state_matches_across_transports`** kann unter Parallelität **viele Minuten** dauern (nicht „hängend“, nur langsam). Nur diesen Test isoliert:  
+   `cargo test -p sc-transport-datagrams transparency_final_state_matches_across_transports`
