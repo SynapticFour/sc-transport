@@ -132,6 +132,48 @@ fn payload_profiles() -> [PayloadProfile; 4] {
     ]
 }
 
+fn active_qualities() -> Vec<QualityProfile> {
+    let all = quality_profiles();
+    let Some(raw) = std::env::var("SC_STREAM_MATRIX_QUALITIES")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+    else {
+        return Vec::from(all);
+    };
+    let want: std::collections::HashSet<&str> = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
+    let picked: Vec<QualityProfile> = all.into_iter().filter(|q| want.contains(q.name)).collect();
+    if picked.is_empty() {
+        Vec::from(quality_profiles())
+    } else {
+        picked
+    }
+}
+
+fn active_payloads() -> Vec<PayloadProfile> {
+    let all = payload_profiles();
+    let Some(raw) = std::env::var("SC_STREAM_MATRIX_PAYLOADS")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+    else {
+        return Vec::from(all);
+    };
+    let want: std::collections::HashSet<&str> = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
+    let picked: Vec<PayloadProfile> = all.into_iter().filter(|p| want.contains(p.name)).collect();
+    if picked.is_empty() {
+        Vec::from(payload_profiles())
+    } else {
+        picked
+    }
+}
+
 fn should_simulate_loss(idx: u64, loss_pct: f64) -> bool {
     if loss_pct <= 0.0 {
         return false;
@@ -488,10 +530,13 @@ async fn streaming_transport_matrix_without_files() {
         .filter(|v| *v > 0)
         .unwrap_or(2);
 
+    let qualities = active_qualities();
+    let payloads = active_payloads();
+
     let mut results = Vec::new();
     for run in 0..repeats {
-        for q in quality_profiles() {
-            for p in payload_profiles() {
+        for &q in &qualities {
+            for &p in &payloads {
                 results.push(run_case(run, "sse", &sse, q, p).await);
                 results.push(run_case(run, "quic-stream", &quic, q, p).await);
                 results.push(run_case(run, "quic-datagram", &datagram, q, p).await);
@@ -506,12 +551,20 @@ async fn streaming_transport_matrix_without_files() {
     artifacts::maybe_write_artifact("streaming-matrix-summary", &summary_json);
     artifacts::maybe_write_artifact("streaming-matrix-summary-md", &summary_markdown(&summary));
 
-    // Sanity checks: matrix should contain all transport/profile combinations.
     assert_eq!(
         results.len(),
-        (quality_profiles().len() * payload_profiles().len() * 3) * repeats as usize
+        qualities.len() * payloads.len() * 3 * repeats as usize
     );
-    assert!(results
+    let max_simulated_loss = qualities
         .iter()
-        .any(|r| r.transport == "quic-datagram" && r.fallback > 0));
+        .map(|q| q.simulated_loss_pct)
+        .fold(0.0_f64, f64::max);
+    if max_simulated_loss > 0.0 {
+        assert!(
+            results
+                .iter()
+                .any(|r| r.transport == "quic-datagram" && r.fallback > 0),
+            "expected at least one quic-datagram fallback when loss profiles are enabled"
+        );
+    }
 }

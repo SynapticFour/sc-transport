@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -806,8 +806,12 @@ impl HybridCongestionController {
 
     pub fn target_send_rate(&self) -> f64 {
         let mut rate = self.bandwidth_estimate;
-        if self.loss_rate > 0.05 {
-            rate *= 0.75;
+        if self.loss_rate > 0.15 {
+            rate *= 0.65;
+        } else if self.loss_rate > 0.08 {
+            rate *= 0.80;
+        } else if self.loss_rate > 0.05 {
+            rate *= 0.90;
         }
         if self.rtt_gradient > 0.15 {
             rate *= 0.8;
@@ -1451,6 +1455,9 @@ impl AutopilotRuntime {
         });
 
         let mut completed = Vec::new();
+        let mut inflight_window: VecDeque<Packet> = VecDeque::new();
+        const MAX_INFLIGHT_TRACK: usize = 64;
+
         while let Some(pkt) = rx_encode.recv().await {
             let start = Instant::now();
             let sig = self.build_congestion_signal();
@@ -1465,7 +1472,14 @@ impl AutopilotRuntime {
             let rate = self.cc.target_send_rate();
             let block_ctx =
                 self.block_context_for_schedule(&pkt, self.fec.data_shards, self.fec.parity_shards);
-            let inflight_wire: &[Packet] = &[];
+            // Rolling window of recent data packets on the wire (parity is not sent; skip it).
+            if !pkt.is_parity {
+                if inflight_window.len() >= MAX_INFLIGHT_TRACK {
+                    inflight_window.pop_front();
+                }
+                inflight_window.push_back(pkt.clone());
+            }
+            let inflight_wire: &[Packet] = inflight_window.make_contiguous();
             let tail_penalty =
                 self.metrics.p95_completion.as_secs_f64() * stab.ranking_pressure_scale;
             self.scheduler.distribute_and_send(
@@ -1700,9 +1714,10 @@ mod tests {
             last_token_refill: Instant::now(),
             last_primary_utility: 0.1,
             queue_models: vec![],
-            path_correlation: PathCorrelation {
-                correlation_matrix: vec![],
-            },
+            path_correlation: PathCorrelation::from_path_kinds(&[
+                PathKind::Stream,
+                PathKind::Datagram,
+            ]),
             optimization_kpi: OptimizationKpi::default(),
             exploration_seed: 1,
         };
@@ -1759,9 +1774,10 @@ mod tests {
             last_token_refill: Instant::now() - Duration::from_secs(10),
             last_primary_utility: 0.1,
             queue_models: vec![],
-            path_correlation: PathCorrelation {
-                correlation_matrix: vec![],
-            },
+            path_correlation: PathCorrelation::from_path_kinds(&[
+                PathKind::Stream,
+                PathKind::Datagram,
+            ]),
             optimization_kpi: OptimizationKpi::default(),
             exploration_seed: 2,
         };

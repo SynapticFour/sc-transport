@@ -1,7 +1,7 @@
 use sct_core::adaptive::{
     AutopilotRuntime, FecEncoder, HybridCongestionController, MultiPathScheduler, OptimizationKpi,
-    Packet, PacketId, PacketMeta, PathCorrelation, PredictiveStabilizer, ReceiverFeedback,
-    StrategyEngine, TransferMetrics, TransportPath,
+    Packet, PacketId, PacketMeta, PathCorrelation, PathKind, PredictiveStabilizer,
+    ReceiverFeedback, StrategyEngine, TransferMetrics, TransportPath,
 };
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -16,6 +16,7 @@ struct DummyPath {
     rtt: Duration,
     bw: f64,
     loss: f64,
+    kind: PathKind,
 }
 
 impl TransportPath for DummyPath {
@@ -30,7 +31,7 @@ impl TransportPath for DummyPath {
         self.loss
     }
     fn path_kind(&self) -> sct_core::adaptive::PathKind {
-        sct_core::adaptive::PathKind::Stream
+        self.kind
     }
 }
 
@@ -74,9 +75,7 @@ fn runtime(enabled: bool) -> AutopilotRuntime {
         last_token_refill: Instant::now() - Duration::from_millis(50),
         last_primary_utility: 0.1,
         queue_models: Vec::new(),
-        path_correlation: PathCorrelation {
-            correlation_matrix: Vec::new(),
-        },
+        path_correlation: PathCorrelation::from_path_kinds(&[PathKind::Stream, PathKind::Datagram]),
         optimization_kpi: OptimizationKpi::default(),
         exploration_seed: 0xBEEFu64,
     };
@@ -84,11 +83,13 @@ fn runtime(enabled: bool) -> AutopilotRuntime {
         rtt: Duration::from_millis(20),
         bw: 220_000_000.0,
         loss: 0.015,
+        kind: PathKind::Stream,
     }));
     scheduler.paths.push(Box::new(DummyPath {
         rtt: Duration::from_millis(35),
         bw: 170_000_000.0,
         loss: 0.045,
+        kind: PathKind::Datagram,
     }));
     let mut cc = HybridCongestionController::default();
     cc.on_network_sample(

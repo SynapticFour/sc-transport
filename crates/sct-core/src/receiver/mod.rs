@@ -179,7 +179,9 @@ impl FileReceiver {
             out.write_all(&chunk).await?;
             received_chunks.insert(desc.index);
             if let Some(ref mut fb_send) = feedback_stream {
-                if (received_chunks.len() as u64).is_multiple_of(feedback_every) {
+                if received_chunks.len() > 0
+                    && (received_chunks.len() as u64).is_multiple_of(feedback_every)
+                {
                     // Berechne fehlende Chunks: expected minus already received.
                     // Cap auf 64 Einträge, kleinste Indizes zuerst (Sender priorisiert
                     // frühe Chunks — sie blockieren oft spätere durch sequentiellen Schreibzwang).

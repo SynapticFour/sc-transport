@@ -1,6 +1,6 @@
 use crate::adaptive::{
     compute_chunk_size, compute_fec_ratio, AutopilotRuntime, FecEncoder, MultiPathScheduler,
-    OptimizationKpi, Packet, PacketId, PacketMeta, PathCorrelation, PredictiveStabilizer,
+    OptimizationKpi, Packet, PacketId, PacketMeta, PathCorrelation, PathKind, PredictiveStabilizer,
     QuicDatagramPath, QuicStreamPath, ReceiverFeedback, StrategyEngine, TransferMetrics,
     TransferMode,
 };
@@ -126,12 +126,8 @@ impl FileSender {
             skip
         };
 
-        if true {
-            self.send_adaptive(&full, &manifest, &skip, total_size)
-                .await?;
-        } else {
-            self.send_legacy(&full, &skip, total_size).await?;
-        }
+        self.send_adaptive(&full, &manifest, &skip, total_size)
+            .await?;
         write_framed(
             &mut ctrl_send,
             &TransferComplete {
@@ -157,6 +153,8 @@ impl FileSender {
         Ok(())
     }
 
+    /// Legacy single-stream send path; kept for fallback / experiments. Production uses [`Self::send_adaptive`].
+    #[allow(dead_code)]
     async fn send_legacy(&self, full: &[u8], skip: &HashSet<u64>, total_size: u64) -> Result<()> {
         let num_chunks = total_size.div_ceil(self.config.chunk_size as u64);
         let semaphore = Semaphore::new(self.config.max_parallel_chunks);
@@ -223,9 +221,10 @@ impl FileSender {
             last_token_refill: Instant::now() - Duration::from_millis(50),
             last_primary_utility: 0.12,
             queue_models: Vec::new(),
-            path_correlation: PathCorrelation {
-                correlation_matrix: Vec::new(),
-            },
+            path_correlation: PathCorrelation::from_path_kinds(&[
+                PathKind::Stream,
+                PathKind::Datagram,
+            ]),
             optimization_kpi: OptimizationKpi::default(),
             exploration_seed: 0xC0FFEEu64,
         };
@@ -254,7 +253,7 @@ impl FileSender {
             completion_first_enabled: true,
         };
         let rtt = self.connection.rtt();
-        let prev_rtt = Duration::from_millis(self.config.chunk_size as u64 % 50 + 10);
+        let prev_rtt = rtt;
         let cwnd = self.connection.congestion_window().max(1200);
         let bw_estimate_bps = (cwnd as f64 / rtt.as_secs_f64().max(0.001)) * 8.0;
         let loss_hint = std::env::var("SC_SCT_ADAPTIVE_LOSS_HINT")
@@ -421,6 +420,7 @@ impl FileSender {
         Ok(payload)
     }
 
+    #[allow(dead_code)] // used only by [`Self::send_legacy`]
     async fn write_chunk_payload(&self, payload: Vec<u8>) -> Result<()> {
         write_packet_payload(&self.connection, payload).await
     }

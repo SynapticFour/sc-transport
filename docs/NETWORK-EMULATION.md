@@ -247,6 +247,22 @@ SC_STREAM_MATRIX_REPEATS=2 \
 cargo test --test streaming_matrix --features "transport-quic transport-datagrams"
 ```
 
+Focused smoke (**excellent** quality, **tiny** and **small** payloads only; good for checking localhost stability without running the full cross-product):
+
+```bash
+SC_STREAM_MATRIX_QUALITIES=excellent \
+SC_STREAM_MATRIX_PAYLOADS=tiny,small \
+SC_STREAM_MATRIX_REPEATS=3 \
+cargo test --test streaming_matrix --features "transport-quic transport-datagrams"
+```
+
+Optional filters (comma-separated, names must match the built-in profiles):
+
+- **`SC_STREAM_MATRIX_QUALITIES`**: `excellent`, `good`, `poor`, `very-poor` (omit for all).
+- **`SC_STREAM_MATRIX_PAYLOADS`**: `tiny`, `small`, `medium`, `large` (omit for all).
+
+If every selected quality has **0%** simulated loss, the integration test **does not** require a `quic-datagram` fallback sample (that assertion only runs when at least one selected profile can inject loss).
+
 Closed-loop A/B (same repeats for fair comparison):
 
 ```bash
