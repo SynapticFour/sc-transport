@@ -709,6 +709,7 @@ async fn run_transfer_job(state: &AppState, transfer_id: Uuid) -> Result<()> {
                         .await;
                     });
                 })),
+                ..Default::default()
             },
         );
         sender.send(&src).await?;
