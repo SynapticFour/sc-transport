@@ -505,6 +505,7 @@ mod tests {
             },
             fec_group: 1,
             reconstructable: false,
+            parity_index: 0,
         };
         let q = [QueueModel::default()];
         let u = path_send_utility(0, &paths, &q, &pkt, &block, &[], 1, 0.01);
@@ -544,6 +545,7 @@ mod tests {
             },
             fec_group: 2,
             reconstructable: false,
+            parity_index: 0,
         };
         let q = [QueueModel::default(), QueueModel::default()];
         let inflight: Vec<Packet> = vec![];

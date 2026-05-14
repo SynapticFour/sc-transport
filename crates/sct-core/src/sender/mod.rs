@@ -5,6 +5,7 @@ use crate::adaptive::{
     TransferMode,
 };
 use crate::compression::maybe_compress;
+use crate::metrics::SctMetrics;
 use crate::protocol::{
     encode, read_framed, write_framed, ChunkDescriptor, CompressionType, FinalAck, ManifestAck,
     ReceiverFeedbackFrame, TransferComplete, TransferManifest,
@@ -32,6 +33,7 @@ pub struct SenderConfig {
     pub compression: CompressionType,
     pub require_final_ack: bool,
     pub progress_callback: Option<Arc<dyn Fn(TransferProgress) + Send + Sync>>,
+    pub prometheus: Option<Arc<SctMetrics>>,
 }
 
 pub struct TransferProgress {
@@ -50,6 +52,7 @@ impl Default for SenderConfig {
             compression: CompressionType::None,
             require_final_ack: true,
             progress_callback: None,
+            prometheus: None,
         }
     }
 }
@@ -60,6 +63,7 @@ impl FileSender {
     }
 
     pub async fn send(&self, path: &Path) -> Result<()> {
+        let wall_start = Instant::now();
         let mut file = File::open(path).await?;
         let meta = file.metadata().await?;
         let total_size = meta.len();
@@ -77,6 +81,23 @@ impl FileSender {
         let hash = blake3::hash(filename.as_bytes());
         let mut transfer_id = [0_u8; 16];
         transfer_id.copy_from_slice(&hash.as_bytes()[..16]);
+        let rtt = self.connection.rtt();
+        let loss_hint = std::env::var("SC_SCT_ADAPTIVE_LOSS_HINT")
+            .ok()
+            .and_then(|v| v.parse::<f64>().ok())
+            .map(|v| v.clamp(0.0, 1.0))
+            .unwrap_or(0.01);
+        let data_shards = if compute_chunk_size(rtt, loss_hint) <= 128 * 1024 {
+            2
+        } else {
+            4
+        };
+        let (_d, p_base) = compute_fec_ratio(loss_hint, 0.0);
+        let parity_shards = if data_shards == 0 {
+            0
+        } else {
+            (p_base + 1).min(data_shards / 2).max(p_base).max(1)
+        };
         let manifest = TransferManifest {
             transfer_id,
             filename,
@@ -87,6 +108,8 @@ impl FileSender {
             file_checksum: checksum,
             compression: self.config.compression.clone(),
             metadata: HashMap::new(),
+            data_shards,
+            parity_shards,
         };
 
         let (mut ctrl_send, mut ctrl_recv) = self.connection.open_control_stream().await?;
@@ -126,7 +149,8 @@ impl FileSender {
             skip
         };
 
-        self.send_adaptive(&full, &manifest, &skip, total_size)
+        let (xfer_metrics, nack_retransmits, loss_rate, fec_estimate) = self
+            .send_adaptive(&full, &manifest, &skip, total_size)
             .await?;
         write_framed(
             &mut ctrl_send,
@@ -150,12 +174,29 @@ impl FileSender {
                 }
             }
         }
+        if let Some(ref m) = self.config.prometheus {
+            m.transfers_completed.inc();
+            m.transfer_duration_seconds
+                .observe(wall_start.elapsed().as_secs_f64());
+            m.transfer_bytes_total.inc_by(total_size);
+            m.transfer_p99_ms
+                .observe(xfer_metrics.p99_completion.as_secs_f64() * 1000.0);
+            m.transfer_loss_rate.observe(loss_rate);
+            m.nack_retransmits_total.inc_by(nack_retransmits);
+            m.fec_encoded_blocks_total.inc_by(fec_estimate);
+        }
         Ok(())
     }
 
     /// Legacy single-stream send path; kept for fallback / experiments. Production uses [`Self::send_adaptive`].
     #[allow(dead_code)]
-    async fn send_legacy(&self, full: &[u8], skip: &HashSet<u64>, total_size: u64) -> Result<()> {
+    async fn send_legacy(
+        &self,
+        full: &[u8],
+        skip: &HashSet<u64>,
+        total_size: u64,
+        manifest: &TransferManifest,
+    ) -> Result<()> {
         let num_chunks = total_size.div_ceil(self.config.chunk_size as u64);
         let semaphore = Semaphore::new(self.config.max_parallel_chunks);
         let start = Instant::now();
@@ -165,7 +206,7 @@ impl FileSender {
                 continue;
             }
             let _permit = semaphore.acquire().await?;
-            let payload = self.build_chunk_payload(full, idx)?;
+            let payload = self.build_chunk_payload(full, idx, manifest)?;
             self.write_chunk_payload(payload).await?;
             sent += self.chunk_len(full, idx) as u64;
             self.emit_progress(sent, total_size, start);
@@ -179,7 +220,7 @@ impl FileSender {
         manifest: &TransferManifest,
         skip: &HashSet<u64>,
         total_size: u64,
-    ) -> Result<()> {
+    ) -> Result<(TransferMetrics, u64, f64, u64)> {
         let (stream_tx, mut stream_rx) = mpsc::unbounded_channel::<Packet>();
         let (dgram_tx, mut dgram_rx) = mpsc::unbounded_channel::<Packet>();
         let stream_conn = self.connection.clone();
@@ -243,8 +284,8 @@ impl FileSender {
             cc: Default::default(),
             scheduler,
             fec: FecEncoder {
-                data_shards: usize::max(2, self.config.max_parallel_chunks / 2),
-                parity_shards: 1,
+                data_shards: manifest.data_shards.max(1),
+                parity_shards: manifest.parity_shards,
             },
             metrics: TransferMetrics::default(),
             stabilizer: PredictiveStabilizer::default(),
@@ -252,6 +293,8 @@ impl FileSender {
             block_data_shards_sent: Arc::new(StdMutex::new(HashMap::new())),
             completion_first_enabled: true,
         };
+        let fec_gap = (0..manifest.data_shards as u64).any(|i| skip.contains(&i));
+        let parity_cap = if fec_gap { 0 } else { manifest.parity_shards };
         let rtt = self.connection.rtt();
         let prev_rtt = rtt;
         let cwnd = self.connection.congestion_window().max(1200);
@@ -274,13 +317,15 @@ impl FileSender {
             cpu_load: 0.5,
         };
         runtime.strategy.update(rtt, loss_hint, 0.2, &recv_feedback);
-        let (data, parity) = compute_fec_ratio(loss_hint, runtime.cc.rtt_variance);
-        runtime.fec.data_shards = data;
-        runtime.fec.parity_shards = parity;
+        let (_d, p_ratio) = compute_fec_ratio(loss_hint, runtime.cc.rtt_variance);
+        runtime.fec.data_shards = manifest.data_shards.max(1);
+        runtime.fec.parity_shards = if parity_cap == 0 {
+            0
+        } else {
+            p_ratio.min(parity_cap).max(1)
+        };
 
         let mut packets = Vec::new();
-        let tuned_chunk = compute_chunk_size(rtt, loss_hint);
-        runtime.fec.data_shards = if tuned_chunk <= 128 * 1024 { 2 } else { 4 };
         let batch_size = std::env::var("SC_SCT_ADAPTIVE_BATCH_SIZE")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
@@ -293,7 +338,7 @@ impl FileSender {
             if skip.contains(&idx) {
                 continue;
             }
-            let payload = self.build_chunk_payload(full, idx)?;
+            let payload = self.build_chunk_payload(full, idx, manifest)?;
             sent += self.chunk_len(full, idx) as u64;
             self.emit_progress(sent, total_size, start);
             packets.push(Packet {
@@ -307,11 +352,13 @@ impl FileSender {
                     deadline: Some(Instant::now() + Duration::from_millis(75 + (idx % 5) * 10)),
                     size: self.chunk_len(full, idx),
                 },
-                fec_group: idx / runtime.fec.data_shards.max(1) as u64,
+                fec_group: idx / manifest.data_shards.max(1) as u64,
                 reconstructable: false,
+                parity_index: 0,
             });
             if packets.len() >= batch_size {
-                apply_feedback_if_present(&mut runtime, &feedback_state, rtt).await;
+                apply_feedback_if_present(&mut runtime, &feedback_state, rtt, manifest, parity_cap)
+                    .await;
                 // NACK-Retransmit: fehlende Chunks die der Receiver gemeldet hat nachsenden.
                 {
                     let maybe_frame = feedback_state.lock().await.clone();
@@ -325,7 +372,9 @@ impl FileSender {
                                 continue;
                             }
                             nack_retransmitted.insert(missing_idx);
-                            if let Ok(payload) = self.build_chunk_payload(full, missing_idx) {
+                            if let Ok(payload) =
+                                self.build_chunk_payload(full, missing_idx, manifest)
+                            {
                                 packets.push(Packet {
                                     id: PacketId(missing_idx),
                                     seq: missing_idx,
@@ -339,16 +388,20 @@ impl FileSender {
                                     },
                                     fec_group: missing_idx / data_shards,
                                     reconstructable: false,
+                                    parity_index: 0,
                                 });
                             }
                         }
                     }
                 }
-                runtime.run_pipeline(std::mem::take(&mut packets)).await;
+                runtime
+                    .run_pipeline(std::mem::take(&mut packets), parity_cap)
+                    .await;
             }
         }
         if !packets.is_empty() {
-            apply_feedback_if_present(&mut runtime, &feedback_state, rtt).await;
+            apply_feedback_if_present(&mut runtime, &feedback_state, rtt, manifest, parity_cap)
+                .await;
             // NACK-Retransmit: fehlende Chunks die der Receiver gemeldet hat nachsenden.
             {
                 let maybe_frame = feedback_state.lock().await.clone();
@@ -362,7 +415,7 @@ impl FileSender {
                             continue;
                         }
                         nack_retransmitted.insert(missing_idx);
-                        if let Ok(payload) = self.build_chunk_payload(full, missing_idx) {
+                        if let Ok(payload) = self.build_chunk_payload(full, missing_idx, manifest) {
                             packets.push(Packet {
                                 id: PacketId(missing_idx),
                                 seq: missing_idx,
@@ -376,24 +429,38 @@ impl FileSender {
                                 },
                                 fec_group: missing_idx / data_shards,
                                 reconstructable: false,
+                                parity_index: 0,
                             });
                         }
                     }
                 }
             }
-            runtime.run_pipeline(packets).await;
+            runtime.run_pipeline(packets, parity_cap).await;
         }
+        let xfer_metrics = runtime.metrics.clone();
+        let nack_retransmits = nack_retransmitted.len() as u64;
+        let loss_rate = runtime.cc.loss_rate;
+        let ds = runtime.fec.data_shards.max(1) as u64;
+        let to_send = manifest.num_chunks.saturating_sub(skip.len() as u64);
+        let fec_estimate = to_send
+            .saturating_add(ds.saturating_sub(1))
+            .saturating_div(ds.max(1));
         drop(runtime);
         let _ = stream_task.await;
         let _ = dgram_task.await;
         feedback_listener.abort();
-        Ok(())
+        Ok((xfer_metrics, nack_retransmits, loss_rate, fec_estimate))
     }
 
-    fn build_chunk_payload(&self, full: &[u8], idx: u64) -> Result<Vec<u8>> {
+    fn build_chunk_payload(
+        &self,
+        full: &[u8],
+        idx: u64,
+        manifest: &TransferManifest,
+    ) -> Result<Vec<u8>> {
         let off = idx as usize * self.config.chunk_size;
         let end = usize::min(off + self.config.chunk_size, full.len());
-        self.build_chunk_payload_at(full, idx, off, end)
+        self.build_chunk_payload_at(full, idx, off, end, manifest)
     }
 
     fn build_chunk_payload_at(
@@ -402,15 +469,22 @@ impl FileSender {
         idx: u64,
         off: usize,
         end: usize,
+        manifest: &TransferManifest,
     ) -> Result<Vec<u8>> {
         let chunk_raw = &full[off..end];
         let chunk = maybe_compress(chunk_raw, &self.config.compression)?;
+        let was_compressed = chunk.len() < chunk_raw.len();
+        let ds = manifest.data_shards.max(1) as u64;
         let desc = ChunkDescriptor {
             index: idx,
             offset: off as u64,
             compressed_size: chunk.len() as u32,
             uncompressed_size: chunk_raw.len() as u32,
             checksum: *blake3::hash(&chunk).as_bytes(),
+            was_compressed,
+            is_parity: false,
+            parity_index: 0,
+            fec_group: idx / ds,
         };
         let desc_bytes = encode(&desc)?;
         let mut payload = Vec::with_capacity(4 + desc_bytes.len() + chunk.len());
@@ -461,6 +535,8 @@ async fn apply_feedback_if_present(
     runtime: &mut AutopilotRuntime,
     state: &Arc<Mutex<Option<ReceiverFeedbackFrame>>>,
     default_rtt: Duration,
+    manifest: &TransferManifest,
+    parity_cap: usize,
 ) {
     let snapshot = { state.lock().await.clone() };
     if let Some(fb) = snapshot {
@@ -484,12 +560,19 @@ async fn apply_feedback_if_present(
             }
         }
         let (data, parity) = compute_fec_ratio(loss, runtime.cc.rtt_variance);
-        runtime.fec.data_shards = data;
-        runtime.fec.parity_shards = match runtime.strategy.mode {
+        let _data = data;
+        runtime.fec.data_shards = manifest.data_shards.max(1);
+        let mut p = match runtime.strategy.mode {
             TransferMode::Aggressive => parity.saturating_add(1),
             TransferMode::Balanced => parity,
             TransferMode::Conservative => parity.saturating_sub(1).max(1),
         };
+        if manifest.parity_shards == 0 || parity_cap == 0 {
+            runtime.fec.parity_shards = 0;
+        } else {
+            p = p.min(manifest.parity_shards).min(parity_cap).max(1);
+            runtime.fec.parity_shards = p;
+        }
         let headroom = runtime.cc.estimate_unused_bandwidth();
         runtime.scheduler.speculative_ratio = if headroom > runtime.cc.bandwidth_estimate * 0.25 {
             0.20

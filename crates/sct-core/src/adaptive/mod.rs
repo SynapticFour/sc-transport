@@ -4,7 +4,10 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use reed_solomon_erasure::galois_8::ReedSolomon;
 use tokio::sync::mpsc;
+
+use crate::protocol::{encode, ChunkDescriptor};
 
 mod optimization;
 mod predictive;
@@ -39,6 +42,8 @@ pub struct Packet {
     pub meta: PacketMeta,
     pub fec_group: u64,
     pub reconstructable: bool,
+    /// Index within the RS parity block (0 .. parity_shards-1).
+    pub parity_index: usize,
 }
 
 impl Packet {
@@ -94,6 +99,7 @@ pub struct SchedulingDecision {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Snapshot-Percentile werden in optimize_transfer berechnet, aber nicht als finale Metrik nach außen übernommen.
 struct OptimizationSnapshot {
     p50_completion: Duration,
     p95_completion: Duration,
@@ -336,12 +342,7 @@ impl MultiPathScheduler {
         if self.paths.is_empty() {
             return;
         }
-        // Parity packets are produced by `FecEncoder::encode_block` for scheduler metrics, but the
-        // receiver protocol still expects every data stream to start with a `ChunkDescriptor`
-        // frame. Skip wire transmission until parity framing is negotiated end-to-end.
-        if packet.is_parity {
-            return;
-        }
+        // Parity uses the same ChunkDescriptor framing as data (`frame_fec_wire_shard` on send).
         self.sync_queue_models_and_correlation();
         self.refill_tokens(target_send_rate * stab.pacing_scale);
         let packet_bytes = packet.meta.size as f64;
@@ -640,6 +641,33 @@ impl ReorderBuffer {
     }
 }
 
+fn frame_fec_wire_shard(
+    index: u64,
+    offset: u64,
+    raw_shard: &[u8],
+    is_parity: bool,
+    parity_index: usize,
+    fec_group: u64,
+) -> Vec<u8> {
+    let desc = ChunkDescriptor {
+        index,
+        offset,
+        compressed_size: raw_shard.len() as u32,
+        uncompressed_size: raw_shard.len() as u32,
+        checksum: *blake3::hash(raw_shard).as_bytes(),
+        was_compressed: false,
+        is_parity,
+        parity_index,
+        fec_group,
+    };
+    let desc_bytes = encode(&desc).expect("chunk descriptor encode");
+    let mut out = Vec::with_capacity(4 + desc_bytes.len() + raw_shard.len());
+    out.extend_from_slice(&(desc_bytes.len() as u32).to_be_bytes());
+    out.extend_from_slice(&desc_bytes);
+    out.extend_from_slice(raw_shard);
+    out
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct FecEncoder {
     pub data_shards: usize,
@@ -652,34 +680,64 @@ impl FecEncoder {
     }
 
     pub fn encode_block(&self, data: &[Packet]) -> Vec<Packet> {
-        if data.is_empty() || self.parity_shards == 0 {
+        let n = self.data_shards.max(1);
+        let p = self.parity_shards;
+        if data.is_empty() {
+            return vec![];
+        }
+        if p == 0 || data.len() < n {
             return data.to_vec();
         }
-        let mut out = data.to_vec();
-        let max_len = data.iter().map(|p| p.payload.len()).max().unwrap_or(0);
-        let mut parity = vec![0_u8; max_len];
-        for p in data {
-            for (i, b) in p.payload.iter().enumerate() {
-                parity[i] ^= *b;
-            }
+        let block = &data[..n];
+        let fec_group = block[0].fec_group;
+        let max_len = block.iter().map(|x| x.payload.len()).max().unwrap_or(0);
+        if max_len == 0 {
+            return block.to_vec();
         }
-        for i in 0..self.parity_shards {
+        let Ok(rs) = ReedSolomon::new(n, p) else {
+            return data.to_vec();
+        };
+        let mut shards: Vec<Vec<u8>> = (0..n)
+            .map(|i| {
+                let mut v = block[i].payload.clone();
+                v.resize(max_len, 0);
+                v
+            })
+            .chain((0..p).map(|_| vec![0u8; max_len]))
+            .collect();
+        if rs.encode(&mut shards).is_err() {
+            return data.to_vec();
+        }
+        let mut out: Vec<Packet> = block.to_vec();
+        let max_pri = block.iter().map(|p| p.meta.priority).max().unwrap_or(1);
+        let deadline = block.iter().filter_map(|p| p.meta.deadline).min();
+        let seq_base = block.last().map(|p| p.seq).unwrap_or(0);
+        for i in 0..p {
+            let row = &shards[n + i];
+            let framed = frame_fec_wire_shard(
+                u64::MAX
+                    .saturating_sub(fec_group.saturating_mul((p + 16) as u64))
+                    .saturating_sub(i as u64),
+                0,
+                row,
+                true,
+                i,
+                fec_group,
+            );
             out.push(Packet {
                 id: PacketId(u64::MAX - i as u64),
-                seq: data
-                    .last()
-                    .map(|p| p.seq + 1 + i as u64)
-                    .unwrap_or(i as u64),
-                payload: parity.clone(),
+                seq: seq_base.saturating_add(1 + i as u64),
+                payload: framed.clone(),
                 is_parity: true,
                 meta: PacketMeta {
                     id: u64::MAX - i as u64,
-                    priority: data.iter().map(|p| p.meta.priority).max().unwrap_or(1),
-                    deadline: data.iter().filter_map(|p| p.meta.deadline).min(),
-                    size: max_len,
+                    priority: max_pri,
+                    deadline,
+                    size: framed.len(),
                 },
-                fec_group: data.first().map(|p| p.fec_group).unwrap_or(0),
+                fec_group,
                 reconstructable: false,
+                parity_index: i,
             });
         }
         out
@@ -697,41 +755,11 @@ impl FecDecoder {
         present >= self.data_shards
     }
 
+    /// Legacy XOR helper (pre–Reed–Solomon wire format). RS recovery is implemented on the receiver.
+    #[allow(dead_code)]
     pub fn recover_single_missing(&self, shards: &mut [Option<Packet>]) -> Option<Packet> {
-        if self.parity_shards == 0 || self.data_shards == 0 {
-            return None;
-        }
-        let missing = shards.iter().position(|s| s.is_none())?;
-        if shards.iter().filter(|s| s.is_none()).count() > 1 {
-            return None;
-        }
-        let parity = shards
-            .iter()
-            .find_map(|s| s.as_ref().filter(|p| p.is_parity))?;
-        let mut recovered = parity.payload.clone();
-        for pkt in shards
-            .iter()
-            .filter_map(|s| s.as_ref())
-            .filter(|p| !p.is_parity)
-        {
-            for (i, b) in pkt.payload.iter().enumerate() {
-                recovered[i] ^= *b;
-            }
-        }
-        Some(Packet {
-            id: PacketId(10_000 + missing as u64),
-            seq: missing as u64,
-            payload: recovered,
-            is_parity: false,
-            meta: PacketMeta {
-                id: 10_000 + missing as u64,
-                priority: 128,
-                deadline: None,
-                size: parity.payload.len(),
-            },
-            fec_group: 0,
-            reconstructable: true,
-        })
+        let _ = shards;
+        None
     }
 }
 
@@ -1241,12 +1269,14 @@ impl AutopilotRuntime {
         let mut out = Vec::new();
         loop {
             let path_snap = self.scheduler.path_states_snapshot();
-            let inflight_sched: Vec<Packet> = Vec::new();
+            // Nutze `out` als Proxy für „schon eingeplante“ Pakete in dieser Runde:
+            // `optimize_global_schedule` / `estimate_completion` sehen so, was bereits
+            // in dieser `optimize_transfer`-Iteration in die Ausgabe-Vec geschrieben wurde.
             let schedule = optimization::optimize_global_schedule(
                 &blocks,
                 &path_snap,
                 self.fec.parity_shards,
-                &inflight_sched,
+                &out,
             );
             let utility_by: HashMap<u64, f64> =
                 schedule.iter().map(|d| (d.block_id, d.utility)).collect();
@@ -1353,13 +1383,10 @@ impl AutopilotRuntime {
         (out, Some(snapshot))
     }
 
-    pub async fn run_pipeline(&mut self, input_packets: Vec<Packet>) {
+    pub async fn run_pipeline(&mut self, input_packets: Vec<Packet>, fec_parity_cap: usize) {
         let (input_packets, snapshot) = self.optimize_transfer(input_packets);
-        let has_completion_snapshot = snapshot.is_some();
         if let Some(s) = snapshot {
-            self.metrics.p50_completion = s.p50_completion;
-            self.metrics.p95_completion = s.p95_completion;
-            self.metrics.p99_completion = s.p99_completion;
+            // Schätzung aus optimize_transfer: nur für Scheduler / KPI, nicht als finale Latenz-Metrik.
             self.metrics.straggler_count = s.straggler_count;
             self.metrics.canceled_redundant_sends = s.canceled_redundant_sends;
         }
@@ -1392,6 +1419,7 @@ impl AutopilotRuntime {
         let blocks_hint = self.blocks_from_packets(&prioritized, &completed_for_hint);
         let straggler_ids = self.detect_stragglers(&blocks_hint);
         let base_fec = self.fec;
+        let fec_cap = fec_parity_cap;
 
         tokio::spawn(async move {
             for p in prioritized {
@@ -1409,13 +1437,17 @@ impl AutopilotRuntime {
 
         tokio::spawn(async move {
             let mut block: Vec<Packet> = Vec::new();
-            while let Some(p) = rx_chunk.recv().await {
-                block.push(p);
-                let fec_group = block[0].fec_group;
-                let fec = if straggler_ids.contains(&fec_group) {
+            let fec_for = |g: u64| -> FecEncoder {
+                if fec_cap == 0 {
+                    FecEncoder {
+                        data_shards: base_fec.data_shards,
+                        parity_shards: 0,
+                    }
+                } else if straggler_ids.contains(&g) {
                     let p_shards = (base_fec.parity_shards + 1)
                         .min(base_fec.data_shards / 2)
-                        .max(base_fec.parity_shards);
+                        .max(base_fec.parity_shards)
+                        .min(fec_cap);
                     FecEncoder {
                         data_shards: base_fec.data_shards,
                         parity_shards: p_shards,
@@ -1423,9 +1455,28 @@ impl AutopilotRuntime {
                 } else {
                     FecEncoder {
                         data_shards: base_fec.data_shards,
-                        parity_shards: base_fec.parity_shards,
+                        parity_shards: base_fec.parity_shards.min(fec_cap),
                     }
-                };
+                }
+            };
+            while let Some(p) = rx_chunk.recv().await {
+                if !block.is_empty() && p.fec_group != block[0].fec_group {
+                    let flush_fec = fec_for(block[0].fec_group);
+                    let n = flush_fec.data_shards.max(1);
+                    while block.len() >= n {
+                        let taken: Vec<_> = block.drain(..n).collect();
+                        let encoded = flush_fec.encode_block(&taken);
+                        for pkt in encoded {
+                            let _ = tx_encode.send(pkt).await;
+                        }
+                    }
+                    for q in block.drain(..) {
+                        let _ = tx_encode.send(q).await;
+                    }
+                }
+                block.push(p);
+                let fec_group = block[0].fec_group;
+                let fec = fec_for(fec_group);
                 if block.len() >= fec.data_shards.max(1) {
                     let encoded = fec.encode_block(&block);
                     for pkt in encoded {
@@ -1436,20 +1487,17 @@ impl AutopilotRuntime {
             }
             if !block.is_empty() {
                 let fec_group = block[0].fec_group;
-                let fec = if straggler_ids.contains(&fec_group) {
-                    let p_shards = (base_fec.parity_shards + 1)
-                        .min(base_fec.data_shards / 2)
-                        .max(base_fec.parity_shards);
-                    FecEncoder {
-                        data_shards: base_fec.data_shards,
-                        parity_shards: p_shards,
+                let fec = fec_for(fec_group);
+                let n = fec.data_shards.max(1);
+                while block.len() >= n {
+                    let taken: Vec<_> = block.drain(..n).collect();
+                    let encoded = fec.encode_block(&taken);
+                    for pkt in encoded {
+                        let _ = tx_encode.send(pkt).await;
                     }
-                } else {
-                    base_fec
-                };
-                let encoded = fec.encode_block(&block);
-                for pkt in encoded {
-                    let _ = tx_encode.send(pkt).await;
+                }
+                for q in block.drain(..) {
+                    let _ = tx_encode.send(q).await;
                 }
             }
         });
@@ -1472,7 +1520,7 @@ impl AutopilotRuntime {
             let rate = self.cc.target_send_rate();
             let block_ctx =
                 self.block_context_for_schedule(&pkt, self.fec.data_shards, self.fec.parity_shards);
-            // Rolling window of recent data packets on the wire (parity is not sent; skip it).
+            // Rolling window of recent data packets on the wire (parity uses the same framing).
             if !pkt.is_parity {
                 if inflight_window.len() >= MAX_INFLIGHT_TRACK {
                     inflight_window.pop_front();
@@ -1506,15 +1554,23 @@ impl AutopilotRuntime {
             self.scheduler.on_feedback_tick();
             completed.push(start.elapsed().as_secs_f64());
         }
-        if !completed.is_empty() && !has_completion_snapshot {
+        if !completed.is_empty() {
             completed.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
             let at = |p: f64| -> Duration {
                 let i = ((p * completed.len() as f64).ceil() as usize).saturating_sub(1);
                 Duration::from_secs_f64(completed[i.min(completed.len() - 1)])
             };
+            // Gemessene Zeiten überschreiben immer die pre-flight Schätzung (Snapshot p50/p95/p99
+            // bleiben nur intern in optimize_transfer).
             self.metrics.p50_completion = at(0.50);
             self.metrics.p95_completion = at(0.95);
             self.metrics.p99_completion = at(0.99);
+            let tail_threshold = self.metrics.p95_completion.as_secs_f64();
+            self.metrics.straggler_count = completed
+                .iter()
+                .copied()
+                .filter(|t| *t > tail_threshold)
+                .count();
         }
         self.metrics.utility_per_transmitted_byte = self
             .scheduler
@@ -1582,6 +1638,7 @@ mod tests {
             },
             fec_group: 0,
             reconstructable: false,
+            parity_index: 0,
         });
         rb.ingest(Packet {
             id: PacketId(1),
@@ -1596,6 +1653,7 @@ mod tests {
             },
             fec_group: 0,
             reconstructable: false,
+            parity_index: 0,
         });
         rb.ingest(Packet {
             id: PacketId(1),
@@ -1610,6 +1668,7 @@ mod tests {
             },
             fec_group: 0,
             reconstructable: false,
+            parity_index: 0,
         });
         let out = rb.reassemble_ready();
         assert_eq!(out.len(), 2);
@@ -1617,7 +1676,18 @@ mod tests {
     }
 
     #[test]
-    fn fec_single_missing_recovery() {
+    fn fec_rs_single_erasure_roundtrip() {
+        let rs = ReedSolomon::new(2, 1).expect("rs");
+        let mut rows = vec![vec![0xAA, 0x11], vec![0x55, 0x22], vec![0u8; 2]];
+        rs.encode(&mut rows).expect("encode");
+        let mut opt: Vec<Option<Vec<u8>>> = rows.into_iter().map(Some).collect();
+        opt[1] = None;
+        rs.reconstruct(&mut opt).expect("reconstruct");
+        assert_eq!(opt[1].as_deref(), Some(&[0x55u8, 0x22][..]));
+    }
+
+    #[test]
+    fn fec_encode_block_emits_framed_parity() {
         let enc = FecEncoder {
             data_shards: 2,
             parity_shards: 1,
@@ -1635,6 +1705,7 @@ mod tests {
             },
             fec_group: 7,
             reconstructable: false,
+            parity_index: 0,
         };
         let p1 = Packet {
             id: PacketId(2),
@@ -1649,16 +1720,13 @@ mod tests {
             },
             fec_group: 7,
             reconstructable: false,
+            parity_index: 0,
         };
         let encoded = enc.encode_block(&[p0.clone(), p1.clone()]);
-        let parity = encoded.last().cloned().expect("parity");
-        let mut shards = vec![Some(p0), None, Some(parity)];
-        let dec = FecDecoder {
-            data_shards: 2,
-            parity_shards: 1,
-        };
-        let recovered = dec.recover_single_missing(&mut shards).expect("recover");
-        assert_eq!(recovered.payload, p1.payload);
+        assert_eq!(encoded.len(), 3);
+        assert!(encoded[2].is_parity);
+        assert!(encoded[2].payload.len() > 2);
+        assert_eq!(encoded[2].parity_index, 0);
     }
 
     #[test]
@@ -1736,6 +1804,7 @@ mod tests {
             },
             fec_group: 0,
             reconstructable: false,
+            parity_index: 0,
         };
         let block = Block {
             id: 0,

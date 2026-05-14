@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+fn default_data_shards() -> usize {
+    4
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransferManifest {
     pub transfer_id: [u8; 16],
@@ -12,6 +16,12 @@ pub struct TransferManifest {
     pub file_checksum: [u8; 32],
     pub compression: CompressionType,
     pub metadata: HashMap<String, String>,
+    /// FEC data shards (must match sender RS block width). Default keeps older manifests valid.
+    #[serde(default = "default_data_shards")]
+    pub data_shards: usize,
+    /// FEC parity shards (0 = no Reed–Solomon parity on the wire).
+    #[serde(default)]
+    pub parity_shards: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,6 +42,17 @@ pub struct ChunkDescriptor {
     pub compressed_size: u32,
     pub uncompressed_size: u32,
     pub checksum: [u8; 32],
+    /// True when the chunk bytes on the wire are ZSTD-compressed; false when passed through
+    /// (e.g. already-compressed payload or expansion guard). Receiver must not call zstd decode
+    /// when false. Omitted in older encodings → `false` via `serde(default)`.
+    #[serde(default)]
+    pub was_compressed: bool,
+    #[serde(default)]
+    pub is_parity: bool,
+    #[serde(default)]
+    pub parity_index: usize,
+    #[serde(default)]
+    pub fec_group: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

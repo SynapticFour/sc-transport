@@ -5,8 +5,9 @@ use crate::protocol::{
 };
 use crate::transport::SctEndpoint;
 use anyhow::Result;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use tokio::fs::{self, OpenOptions};
 use tokio::io::SeekFrom;
@@ -58,6 +59,16 @@ impl FileReceiver {
             .ok_or_else(|| anyhow::anyhow!("no incoming connection"))??;
         let (mut ctrl_send, mut ctrl_recv) = conn.accept_control_stream().await?;
         let manifest: TransferManifest = read_framed(&mut ctrl_recv).await?;
+
+        let fec_rs = if manifest.parity_shards > 0 && manifest.data_shards > 0 {
+            Some(
+                ReedSolomon::new(manifest.data_shards, manifest.parity_shards)
+                    .map_err(|e| anyhow::anyhow!("invalid fec dimensions: {e:?}"))?,
+            )
+        } else {
+            None
+        };
+        let mut fec_groups: HashMap<u64, Vec<Option<Vec<u8>>>> = HashMap::new();
 
         fs::create_dir_all(&self.output_dir).await?;
         let final_path = self.output_dir.join(&manifest.filename);
@@ -172,6 +183,48 @@ impl FileReceiver {
             let mut desc_buf = vec![0_u8; desc_len];
             stream.read_exact(&mut desc_buf).await?;
             let desc: ChunkDescriptor = decode(&desc_buf)?;
+
+            if desc.is_parity {
+                let mut payload = vec![0_u8; desc.compressed_size as usize];
+                stream.read_exact(&mut payload).await?;
+                let Some(ref rs) = fec_rs else {
+                    continue;
+                };
+                if self.config.verify_checksums {
+                    let got = *blake3::hash(&payload).as_bytes();
+                    if got != desc.checksum {
+                        return Err(anyhow::anyhow!(
+                            "parity checksum mismatch fec_group={} parity_index={}",
+                            desc.fec_group,
+                            desc.parity_index
+                        ));
+                    }
+                }
+                let g = desc.fec_group;
+                let group = fec_groups
+                    .entry(g)
+                    .or_insert_with(|| vec![None; manifest.data_shards + manifest.parity_shards]);
+                let pi = desc.parity_index.saturating_add(manifest.data_shards);
+                if pi < group.len() {
+                    let mut framed = Vec::with_capacity(4 + desc_buf.len() + payload.len());
+                    framed.extend_from_slice(&len_buf);
+                    framed.extend_from_slice(&desc_buf);
+                    framed.extend_from_slice(&payload);
+                    group[pi] = Some(framed);
+                }
+                try_fec_group_recover(
+                    g,
+                    &mut fec_groups,
+                    &manifest,
+                    rs,
+                    &mut out,
+                    &mut received_chunks,
+                    self.config.verify_checksums,
+                )
+                .await?;
+                continue;
+            }
+
             if received_chunks.contains(&desc.index) {
                 // Already persisted in partial state; still consume payload bytes from stream.
                 let mut discard = vec![0_u8; desc.compressed_size as usize];
@@ -186,10 +239,44 @@ impl FileReceiver {
                     return Err(anyhow::anyhow!("chunk checksum mismatch at {}", desc.index));
                 }
             }
-            let chunk = maybe_decompress(&payload, &manifest.compression)?;
+            let chunk = if desc.was_compressed {
+                maybe_decompress(&payload, &manifest.compression)?
+            } else {
+                payload.clone()
+            };
             out.seek(SeekFrom::Start(desc.offset)).await?;
             out.write_all(&chunk).await?;
             received_chunks.insert(desc.index);
+
+            if let Some(ref rs) = fec_rs {
+                let ds = manifest.data_shards.max(1);
+                let g = desc.fec_group;
+                let base = g.saturating_mul(ds as u64);
+                let slot = desc.index.saturating_sub(base) as usize;
+                if slot < manifest.data_shards {
+                    let mut framed = Vec::with_capacity(4 + desc_buf.len() + payload.len());
+                    framed.extend_from_slice(&len_buf);
+                    framed.extend_from_slice(&desc_buf);
+                    framed.extend_from_slice(&payload);
+                    let group = fec_groups.entry(g).or_insert_with(|| {
+                        vec![None; manifest.data_shards + manifest.parity_shards]
+                    });
+                    if slot < group.len() {
+                        group[slot] = Some(framed);
+                    }
+                    try_fec_group_recover(
+                        g,
+                        &mut fec_groups,
+                        &manifest,
+                        rs,
+                        &mut out,
+                        &mut received_chunks,
+                        self.config.verify_checksums,
+                    )
+                    .await?;
+                }
+            }
+
             if let Some(ref mut fb_send) = feedback_stream {
                 if !received_chunks.is_empty()
                     && (received_chunks.len() as u64).is_multiple_of(feedback_every)
@@ -274,6 +361,94 @@ impl FileReceiver {
         }
         Ok(final_path)
     }
+}
+
+async fn persist_framed_chunk(
+    wire: &[u8],
+    manifest: &TransferManifest,
+    out: &mut tokio::fs::File,
+    received_chunks: &mut HashSet<u64>,
+    verify_checksums: bool,
+) -> Result<()> {
+    if wire.len() < 4 {
+        return Err(anyhow::anyhow!("truncated chunk stream"));
+    }
+    let desc_len = u32::from_be_bytes(wire[0..4].try_into().unwrap()) as usize;
+    if wire.len() < 4 + desc_len {
+        return Err(anyhow::anyhow!("truncated chunk descriptor"));
+    }
+    let desc: ChunkDescriptor = decode(&wire[4..4 + desc_len])?;
+    let payload_off = 4 + desc_len;
+    let payload_end = payload_off + desc.compressed_size as usize;
+    if payload_end > wire.len() {
+        return Err(anyhow::anyhow!("truncated chunk body"));
+    }
+    let wire_payload = &wire[payload_off..payload_end];
+    if verify_checksums {
+        let got = *blake3::hash(wire_payload).as_bytes();
+        if got != desc.checksum {
+            return Err(anyhow::anyhow!("chunk checksum mismatch at {}", desc.index));
+        }
+    }
+    let chunk = if desc.was_compressed {
+        maybe_decompress(wire_payload, &manifest.compression)?
+    } else {
+        wire_payload.to_vec()
+    };
+    if !received_chunks.contains(&desc.index) {
+        out.seek(SeekFrom::Start(desc.offset)).await?;
+        out.write_all(&chunk).await?;
+        received_chunks.insert(desc.index);
+    }
+    Ok(())
+}
+
+async fn try_fec_group_recover(
+    fec_group: u64,
+    fec_groups: &mut HashMap<u64, Vec<Option<Vec<u8>>>>,
+    manifest: &TransferManifest,
+    rs: &ReedSolomon,
+    out: &mut tokio::fs::File,
+    received_chunks: &mut HashSet<u64>,
+    verify_checksums: bool,
+) -> Result<()> {
+    let Some(group) = fec_groups.get(&fec_group) else {
+        return Ok(());
+    };
+    let total = manifest.data_shards + manifest.parity_shards;
+    if group.len() != total {
+        return Ok(());
+    }
+    let received = group.iter().filter(|s| s.is_some()).count();
+    if received < manifest.data_shards {
+        return Ok(());
+    }
+    let mut max_len = 0usize;
+    for s in group.iter().flatten() {
+        max_len = max_len.max(s.len());
+    }
+    if max_len == 0 {
+        return Ok(());
+    }
+    let mut shards: Vec<Option<Vec<u8>>> = group
+        .iter()
+        .map(|opt| {
+            opt.as_ref().map(|v| {
+                let mut x = v.clone();
+                x.resize(max_len, 0);
+                x
+            })
+        })
+        .collect();
+    rs.reconstruct(&mut shards)
+        .map_err(|e| anyhow::anyhow!("fec reconstruct: {e:?}"))?;
+    for i in 0..manifest.data_shards {
+        if let Some(bytes) = shards.get(i).and_then(|s| s.as_ref()) {
+            persist_framed_chunk(bytes, manifest, out, received_chunks, verify_checksums).await?;
+        }
+    }
+    fec_groups.remove(&fec_group);
+    Ok(())
 }
 
 fn hex_transfer_id(id: [u8; 16]) -> String {

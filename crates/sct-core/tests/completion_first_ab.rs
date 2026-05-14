@@ -48,6 +48,7 @@ fn make_packets() -> Vec<Packet> {
             },
             fec_group: i / 4,
             reconstructable: false,
+            parity_index: 0,
         });
     }
     out
@@ -125,9 +126,9 @@ async fn completion_first_reduces_tail_and_waste() {
     common::with_timeout("completion_first_reduces_tail_and_waste", 120, async {
         let packets = make_packets();
         let mut baseline = runtime(false);
-        baseline.run_pipeline(packets.clone()).await;
+        baseline.run_pipeline(packets.clone(), 2).await;
         let mut completion = runtime(true);
-        completion.run_pipeline(packets).await;
+        completion.run_pipeline(packets, 2).await;
 
         assert!(
             completion.metrics.canceled_redundant_sends > baseline.metrics.canceled_redundant_sends
