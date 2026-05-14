@@ -25,9 +25,8 @@ impl SctMetrics {
             IntGauge::new("sct_active_transfers", "Active transfers").expect("valid metric");
 
         let transfer_duration_seconds = Histogram::with_opts(
-            HistogramOpts::new("sct_transfer_duration_seconds", "Transfer duration").buckets(vec![
-                0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 300.0,
-            ]),
+            HistogramOpts::new("sct_transfer_duration_seconds", "Transfer duration")
+                .buckets(vec![0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 300.0]),
         )
         .expect("valid metric");
 
@@ -42,9 +41,8 @@ impl SctMetrics {
         .expect("valid metric");
 
         let transfer_p99_ms = Histogram::with_opts(
-            HistogramOpts::new("sct_transfer_p99_ms", "p99 completion latency ms").buckets(vec![
-                1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 500.0,
-            ]),
+            HistogramOpts::new("sct_transfer_p99_ms", "p99 completion latency ms")
+                .buckets(vec![1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 500.0]),
         )
         .expect("valid metric");
 
