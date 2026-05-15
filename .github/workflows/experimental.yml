@@ -5,6 +5,10 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   datagram-tests:
     runs-on: ubuntu-latest
@@ -53,13 +57,16 @@ jobs:
           python3 scripts/compare_bench_results.py artifacts/previous-bench.json artifacts/current-bench.json artifacts/regressions.txt
           cp artifacts/current-bench.json artifacts/previous-bench.json
       - name: Create issue on benchmark regression
+        continue-on-error: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ -f artifacts/regressions.txt ] && [ "$(cat artifacts/regressions.txt)" = "true" ]; then
+            echo "::warning::Experimental datagram benchmark regression detected"
             gh issue create \
               --title "Experimental datagram benchmark regression detected" \
-              --body "The experimental packet-loss benchmark changed significantly. See workflow artifacts for details."
+              --body "The experimental packet-loss benchmark changed significantly. See workflow artifacts for details." \
+              || echo "Could not open GitHub issue (permissions or API); see workflow warning."
           else
             echo "No regression issue needed."
           fi
