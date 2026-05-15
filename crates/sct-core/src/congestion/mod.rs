@@ -42,6 +42,8 @@ pub struct ScientificBbrController {
     pub max_bandwidth_bps: f64,
     bandwidth_samples: VecDeque<(Instant, f64)>,
     pub min_rtt: Duration,
+    /// EWMA of squared RTT deviation from `min_rtt` (seconds²).
+    pub rtt_variance: f64,
     min_rtt_stamp: Instant,
     min_rtt_filter_window: Duration,
     pub state: BbrState,
@@ -65,6 +67,7 @@ impl ScientificBbrController {
             max_bandwidth_bps: 0.0,
             bandwidth_samples: VecDeque::new(),
             min_rtt: Duration::from_millis(100),
+            rtt_variance: 0.0,
             min_rtt_stamp: now,
             min_rtt_filter_window: Duration::from_secs(10),
             state: BbrState::Startup,
@@ -121,6 +124,14 @@ impl ScientificBbrController {
             self.min_rtt = rtt;
             self.min_rtt_stamp = now;
         }
+        self.min_rtt = self.min_rtt.min(rtt);
+
+        // RTT-Varianz für den PredictiveStabilizer berechnen.
+        // Einfacher EWMA der quadratischen RTT-Abweichung vom Minimum.
+        let rtt_f = rtt.as_secs_f64();
+        let min_f = self.min_rtt.as_secs_f64();
+        let variance_sample = (rtt_f - min_f).powi(2);
+        self.rtt_variance = 0.9 * self.rtt_variance + 0.1 * variance_sample;
 
         self.bdp = ((self.max_bandwidth_bps / 8.0) * self.min_rtt.as_secs_f64()) as u64;
         self.bdp = self.bdp.max(self.mtu * 4);
@@ -392,6 +403,28 @@ mod tests {
         );
         assert!(c.window() >= 1200 * 4);
         assert!(c.app_limited_samples >= 1);
+    }
+
+    #[test]
+    fn rtt_variance_ewma_tracks_rtt_jitter() {
+        let cfg = Arc::new(SciBbrConfig::default());
+        let mut c = ScientificBbrController::new(cfg, Instant::now(), 1200);
+        let mut now = Instant::now();
+        for _ in 0..20 {
+            c.on_acked(1200 * 8, Duration::from_millis(40), now, false);
+            now += Duration::from_millis(50);
+        }
+        let low_var = c.rtt_variance;
+        for _ in 0..20 {
+            c.on_acked(1200 * 8, Duration::from_millis(120), now, false);
+            now += Duration::from_millis(50);
+        }
+        assert!(
+            c.rtt_variance > low_var,
+            "variance should grow under RTT jitter: {} vs {}",
+            c.rtt_variance,
+            low_var
+        );
     }
 
     #[test]

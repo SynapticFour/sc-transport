@@ -6,7 +6,7 @@ This repository uses a modular structure with clear ownership boundaries and exp
 
 - `README.md`: project scope and usage entrypoint.
 - `docs/`: detailed design notes, operational guidance, and implementation decisions.
-- `DECISIONS.md`: architectural decisions and rationale.
+- `DECISIONS.md`: repo-wide ADR-lite; transport decisions in `docs/DECISIONS.md`.
 - [README § Continuous integration](README.md#continuous-integration): verification gates and Make targets.
 
 ## Design principles

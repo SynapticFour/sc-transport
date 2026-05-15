@@ -481,6 +481,15 @@ impl QuicStreamTransport {
         Ok(conn)
     }
 
+    /// Close the persistent uni stream used by per-event sends so batch can open fresh streams.
+    #[cfg(feature = "quic-streams")]
+    async fn finish_persistent_uni_stream(&self) {
+        let mut stream_guard = self.shared_uni_stream.lock().await;
+        if let Some(mut stream) = stream_guard.take() {
+            let _ = stream.finish();
+        }
+    }
+
     pub async fn send_events_batch(
         &self,
         run_id: &str,
@@ -488,6 +497,7 @@ impl QuicStreamTransport {
     ) -> Result<BatchSendResult, TransportError> {
         #[cfg(feature = "quic-streams")]
         {
+            self.finish_persistent_uni_stream().await;
             let conn = self.connect_for_batch().await.map_err(|_| {
                 TransportError::Unavailable("quic connection unavailable".to_string())
             })?;

@@ -1,13 +1,151 @@
 use sct_core::protocol::{
-    read_framed, write_framed, ManifestAck, TransferComplete, TransferManifest,
+    encode, read_framed, write_framed, ChunkDescriptor, CompressionType, FinalAck, ManifestAck,
+    TransferComplete, TransferManifest,
 };
 use sct_core::receiver::{FileReceiver, ReceiverConfig};
 use sct_core::sender::{FileSender, SenderConfig};
-use sct_core::transport::{SctEndpoint, TransportConfig};
+use sct_core::transport::{SctConnection, SctEndpoint, TransportConfig};
 use serial_test::serial;
+use std::collections::HashMap;
 use std::net::SocketAddr;
-
 mod common;
+
+fn framed_chunk_payload(index: u64, body: &[u8], chunk_size: usize) -> Vec<u8> {
+    let off = index as usize * chunk_size;
+    let desc = ChunkDescriptor {
+        index,
+        offset: off as u64,
+        compressed_size: body.len() as u32,
+        uncompressed_size: body.len() as u32,
+        checksum: *blake3::hash(body).as_bytes(),
+        was_compressed: false,
+        is_parity: false,
+        parity_index: 0,
+        fec_group: index,
+    };
+    let desc_bytes = encode(&desc).expect("encode chunk descriptor");
+    let mut payload = Vec::with_capacity(4 + desc_bytes.len() + body.len());
+    payload.extend_from_slice(&(desc_bytes.len() as u32).to_be_bytes());
+    payload.extend_from_slice(&desc_bytes);
+    payload.extend_from_slice(body);
+    payload
+}
+
+async fn write_chunk_on_stream(conn: &SctConnection, wire: Vec<u8>) {
+    let mut stream = conn.open_data_stream().await.expect("open data stream");
+    stream.write_all(&wire).await.expect("write chunk");
+    stream.finish().expect("finish data stream");
+}
+
+#[tokio::test]
+#[serial]
+async fn duplicate_chunks_are_deduplicated() {
+    common::with_timeout("duplicate_chunks_are_deduplicated", 60, async {
+        let recv_tmp = tempfile::tempdir().expect("tempdir");
+        std::env::set_var("HOME", recv_tmp.path());
+        let chunk_size = 64 * 1024;
+        let payload = vec![0x42_u8; chunk_size * 2];
+        let file_checksum = *blake3::hash(&payload).as_bytes();
+        let filename = "dedup.bin";
+        let mut transfer_id = [0_u8; 16];
+        transfer_id.copy_from_slice(&blake3::hash(filename.as_bytes()).as_bytes()[..16]);
+        let hex = transfer_id
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
+        let state_path = recv_tmp.path().join(format!("{filename}.{hex}.state.json"));
+
+        let server = SctEndpoint::server(TransportConfig {
+            bind_addr: "127.0.0.1:0".parse().expect("addr"),
+            ..Default::default()
+        })
+        .expect("server");
+        let addr: SocketAddr = server.local_addr().expect("local addr");
+
+        let receiver = FileReceiver::new(
+            server,
+            recv_tmp.path().to_path_buf(),
+            ReceiverConfig {
+                resume_partial: true,
+                temp_dir: Some(recv_tmp.path().to_path_buf()),
+                ..Default::default()
+            },
+        );
+        let recv_task =
+            tokio::spawn(async move { receiver.accept_transfer().await.expect("receive") });
+
+        let client = SctEndpoint::client(TransportConfig {
+            bind_addr: "0.0.0.0:0".parse().expect("addr"),
+            ..Default::default()
+        })
+        .expect("client");
+        let server_name = format!("dedup-{}", addr.port());
+        let conn = client.connect(addr, &server_name).await.expect("connect");
+
+        let manifest = TransferManifest {
+            transfer_id,
+            filename: filename.to_string(),
+            total_size: payload.len() as u64,
+            chunk_size: chunk_size as u32,
+            num_chunks: 2,
+            checksum_algorithm: sct_proto::ChecksumAlg::Blake3,
+            file_checksum,
+            compression: CompressionType::None,
+            metadata: HashMap::new(),
+            data_shards: 1,
+            parity_shards: 0,
+        };
+        let (mut ctrl_send, mut ctrl_recv) = conn.open_control_stream().await.expect("control");
+        write_framed(&mut ctrl_send, &manifest)
+            .await
+            .expect("manifest");
+        let ack: ManifestAck = read_framed(&mut ctrl_recv).await.expect("manifest ack");
+        assert!(ack.accepted);
+
+        let chunk0 = &payload[..chunk_size];
+        let chunk1 = &payload[chunk_size..];
+        let wire0 = framed_chunk_payload(0, chunk0, chunk_size);
+        let wire1 = framed_chunk_payload(1, chunk1, chunk_size);
+        write_chunk_on_stream(&conn, wire0.clone()).await;
+        write_chunk_on_stream(&conn, wire0).await;
+
+        let mut state_raw = None;
+        for _ in 0..100 {
+            if state_path.exists() {
+                state_raw = Some(tokio::fs::read(&state_path).await.expect("resume state"));
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        let state_raw = state_raw.expect("resume state not written after duplicate chunk");
+        let state: serde_json::Value = serde_json::from_slice(&state_raw).expect("state json");
+        let received = state["received_chunks"]
+            .as_array()
+            .expect("received_chunks array");
+        assert_eq!(
+            received.len(),
+            1,
+            "duplicate index must not be counted twice"
+        );
+
+        write_chunk_on_stream(&conn, wire1).await;
+        write_framed(
+            &mut ctrl_send,
+            &TransferComplete {
+                transfer_id: manifest.transfer_id,
+            },
+        )
+        .await
+        .expect("complete");
+        let final_ack: FinalAck = read_framed(&mut ctrl_recv).await.expect("final ack");
+        assert!(final_ack.success);
+
+        let out_path = recv_task.await.expect("join");
+        let got = tokio::fs::read(out_path).await.expect("read output");
+        assert_eq!(got, payload);
+    })
+    .await;
+}
 
 #[tokio::test]
 #[serial]

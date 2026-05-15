@@ -165,3 +165,67 @@ async fn e2e_loopback_fec_recovery() {
     })
     .await;
 }
+
+/// Voller Loopback mit `duplicate_budget=4` (Scheduler in `send_adaptive`).
+#[tokio::test]
+#[serial]
+async fn loopback_with_duplication() {
+    common::with_timeout("loopback_with_duplication", 120, async {
+        std::env::set_var("SC_SCT_ADAPTIVE_LOSS_HINT", LOSS_HINT_DATA_SHARDS_4);
+        let _env = EnvGuard {
+            vars: &["SC_SCT_ADAPTIVE_LOSS_HINT"],
+        };
+
+        let data: Vec<u8> = (0..TEST_BYTES).map(|i| (i % 251) as u8).collect();
+        let tmp_in = tempfile::NamedTempFile::new().expect("tmp_in");
+        std::fs::write(tmp_in.path(), &data).expect("write tmp_in");
+
+        let recv_tmp = tempfile::tempdir().expect("recv tempdir");
+        std::env::set_var("HOME", recv_tmp.path());
+
+        let server = SctEndpoint::server(TransportConfig {
+            bind_addr: "127.0.0.1:0".parse().expect("addr"),
+            ..Default::default()
+        })
+        .expect("server");
+        let addr: SocketAddr = server.local_addr().expect("local addr");
+
+        let receiver = FileReceiver::new(
+            server,
+            recv_tmp.path().to_path_buf(),
+            ReceiverConfig::default(),
+        );
+        let recv_task =
+            tokio::spawn(async move { receiver.accept_transfer().await.expect("receive") });
+
+        let client = SctEndpoint::client(TransportConfig {
+            bind_addr: "0.0.0.0:0".parse().expect("addr"),
+            ..Default::default()
+        })
+        .expect("client");
+        let server_name = format!("e2e-loopback-dup-{}", addr.port());
+        let conn = client.connect(addr, &server_name).await.expect("connect");
+
+        let send_cfg = SenderConfig {
+            chunk_size: CHUNK_SIZE,
+            compression: CompressionType::None,
+            ..Default::default()
+        };
+        let sender = FileSender::new(conn, send_cfg);
+        let src_path = tmp_in.path().to_path_buf();
+        let send_task = tokio::spawn(async move { sender.send(&src_path).await });
+
+        let (send_res, recv_res) = tokio::join!(send_task, recv_task);
+        send_res
+            .expect("send join")
+            .expect("send with duplication enabled");
+        let out_path = recv_res.expect("recv join");
+
+        let received = tokio::fs::read(&out_path).await.expect("read output");
+        assert_eq!(
+            data, received,
+            "transfer with duplicate_budget=4 must still verify end-to-end"
+        );
+    })
+    .await;
+}

@@ -239,6 +239,51 @@ mod tests {
 
     #[cfg(feature = "quic-streams")]
     #[tokio::test]
+    async fn batch_succeeds_after_persistent_uni_per_event_sends() {
+        use quinn::{Endpoint, ServerConfig};
+        use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
+        use sc_transport_core::Transport;
+
+        let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).expect("cert");
+        let cert_der: CertificateDer<'static> = CertificateDer::from(cert.cert.der().to_vec());
+        let key_der = PrivatePkcs8KeyDer::from(cert.signing_key.serialize_der());
+        let mut server_config =
+            ServerConfig::with_single_cert(vec![cert_der], key_der.into()).expect("server cfg");
+        if let Some(transport) = std::sync::Arc::get_mut(&mut server_config.transport) {
+            transport.max_concurrent_uni_streams(128_u32.into());
+        }
+        let server = Endpoint::server(
+            server_config,
+            std::net::SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, 0)),
+        )
+        .expect("server");
+        let addr = server.local_addr().expect("addr");
+        let _server_task = tokio::spawn(async move {
+            if let Some(incoming) = server.accept().await {
+                let conn = incoming.await.expect("conn");
+                while conn.accept_uni().await.is_ok() {}
+            }
+        });
+
+        let t = QuicStreamTransport::with_server_addr(addr);
+        with_insecure_quic_env(|| async {
+            for i in 0..32_u64 {
+                t.send_event("warm", mk("warm", i))
+                    .await
+                    .expect("per-event send");
+            }
+            let events = (0..64).map(|i| mk("batch", i)).collect::<Vec<_>>();
+            let res = t
+                .send_events_batch("batch", events)
+                .await
+                .expect("batch after persistent uni");
+            assert!(res.sent_events >= 60, "sent {}", res.sent_events);
+        })
+        .await;
+    }
+
+    #[cfg(feature = "quic-streams")]
+    #[tokio::test]
     async fn batch_fails_gracefully_when_stream_limit_exceeded() {
         use quinn::{Endpoint, ServerConfig};
         use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};

@@ -804,6 +804,8 @@ pub struct HybridCongestionController {
     pub loss_rate: f64,
     pub rtt_gradient: f64,
     pub rtt_variance: f64,
+    /// Smoothed RTT variance trend (EWMA); fed to stabilization / queue-pressure signals.
+    pub rtt_variance_trend: f64,
     pub in_use_bandwidth: f64,
     /// Smoothed scheduler-reported queue pressure ∈ [0, 1].
     pub scheduler_queue_pressure: f64,
@@ -820,6 +822,7 @@ impl Default for HybridCongestionController {
             loss_rate: 0.0,
             rtt_gradient: 0.0,
             rtt_variance: 0.0,
+            rtt_variance_trend: 0.0,
             in_use_bandwidth: 0.0,
             scheduler_queue_pressure: 0.0,
             scheduler_completion_pressure: 0.0,
@@ -853,7 +856,11 @@ impl HybridCongestionController {
         self.loss_rate = loss_rate.clamp(0.0, 1.0);
         self.rtt_gradient =
             (rtt.as_secs_f64() - prev_rtt.as_secs_f64()) / prev_rtt.as_secs_f64().max(0.000_001);
-        self.rtt_variance = (rtt.as_secs_f64() - self.min_rtt.as_secs_f64()).abs();
+        let rtt_f = rtt.as_secs_f64();
+        let min_f = self.min_rtt.as_secs_f64();
+        let variance_sample = (rtt_f - min_f).powi(2);
+        self.rtt_variance = 0.9 * self.rtt_variance + 0.1 * variance_sample;
+        self.rtt_variance_trend = self.rtt_variance;
         self.in_use_bandwidth = self.target_send_rate();
     }
 
@@ -1114,8 +1121,9 @@ impl AutopilotRuntime {
         let p95 = self.metrics.p95_completion.as_secs_f64().max(0.001);
         let p50 = self.metrics.p50_completion.as_secs_f64().max(0.001);
         let completion_pressure = (((p95 / p50) - 1.0).clamp(0.0, 3.0) / 3.0).min(1.0);
-        let queue_pressure =
-            (self.cc.rtt_variance / self.cc.min_rtt.as_secs_f64().max(0.000_5)).clamp(0.0, 1.0);
+        let queue_pressure = (self.cc.rtt_variance_trend
+            / self.cc.min_rtt.as_secs_f64().max(0.000_5))
+        .clamp(0.0, 1.0);
         let retransmission_pressure = self.cc.loss_rate.clamp(0.0, 1.0);
         CongestionSignal {
             queue_pressure,

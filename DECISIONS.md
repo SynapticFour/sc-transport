@@ -17,3 +17,7 @@ Track important architectural and operational decisions here.
 - **Context:** Repositories had uneven governance and CI security posture.
 - **Decision:** Standardize governance docs, quality gates, and security scanning workflows.
 - **Consequences:** Better consistency and contributor trust; ongoing maintenance required to keep checks aligned with stack changes.
+
+---
+
+Transport-specific ADRs (QUIC matrix, speculative duplication, RTT variance): see [`docs/DECISIONS.md`](docs/DECISIONS.md).

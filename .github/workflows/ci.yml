@@ -8,52 +8,40 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
+  RUST_TEST_THREADS: "1"
 
 jobs:
   test:
-    name: Test suite
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
 
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy -p sct-core -p sct-proto --all-targets -- -D warnings
+      - run: cargo test --package sct-proto
+      - run: cargo test --package sct-core --lib
+      - run: cargo test --package sct-core --test completion_campaign
+      - run: cargo test --package sct-core --test completion_first_ab
+      - run: cargo test --package sct-core --test fec_recovery
+      - run: cargo test --package sct-core --test delta_transfer
+      - run: cargo test --package sct-core --test transfer_smoke
+      - run: cargo test --package sct-core --test prompt5_integration
+      - run: cargo test --package sct-core --test e2e_loopback --features test-hooks
 
-      - name: Format check
-        run: cargo fmt --all -- --check
-
-      - name: Clippy
-        run: cargo clippy -p sct-core -p sct-proto --all-targets --all-features -- -D warnings
-
-      - name: Unit tests (lib)
-        run: cargo test --package sct-core --lib
-
-      - name: Integration tests (serial QUIC loopback)
+      - name: cf-check regression gate
         run: |
-          export RUST_TEST_THREADS=1
-          for t in completion_campaign completion_first_ab delta_transfer transfer_smoke \
-            e2e_loopback fec_recovery prompt5_integration; do
-            echo "==> sct-core --test $t"
-            features=
-            [ "$t" = e2e_loopback ] && features="--features test-hooks"
-            cargo test --package sct-core --test "$t" $features -- --test-threads=1
-          done
-
-      - name: cf-check (completion_first regression)
-        run: |
+          mkdir -p /tmp/cf-check
           SC_TRANSPORT_ARTIFACT_DIR=/tmp/cf-check \
-            cargo test --package sct-core --test completion_campaign completion_campaign_metrics -- --exact
-          p99=$(jq .p99_completion_ms /tmp/cf-check/completion-campaign-summary.json)
-          echo "cf-check p99=${p99}ms"
-          python3 -c "assert ${p99} < 5.0, f'cf-check p99 regression: {${p99}}ms >= 5ms'"
-
-      - name: Proto tests
-        run: cargo test --package sct-proto
+            cargo test --package sct-core --test completion_campaign \
+            completion_campaign_metrics -- --exact --nocapture
+          P99=$(python3 -c "import json; \
+            print(json.load(open('/tmp/cf-check/completion-campaign-summary.json'))['p99_completion_ms'])")
+          echo "cf-check p99=${P99}ms"
+          python3 -c "assert ${P99} < 5.0, f'Regression: p99=${P99}ms >= 5ms'"
 
   # Mirrors `make ci-transport-integration` (see README § Continuous integration).
   workspace-integration:
@@ -61,14 +49,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2
 
       - name: Clippy (transport workspace)
         run: |
