@@ -605,6 +605,7 @@ fn allow_insecure_quic_override() -> bool {
 }
 
 /// Mirror each successful QUIC send into the in-process SSE fan-out (tests/subscribers).
+#[cfg(feature = "quic-streams")]
 fn mirror_sse_enabled() -> bool {
     std::env::var("SC_QUIC_MIRROR_SSE")
         .ok()
