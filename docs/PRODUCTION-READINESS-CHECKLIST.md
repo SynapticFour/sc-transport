@@ -11,10 +11,19 @@ production use in the Synaptic Core stack.
 
 ## A) Linux Netem Measurement Campaign (Required)
 
-- [x] Run packet-loss integration tests on Linux host with root privileges.
-- [x] Run latency and throughput benches on Linux with and without `tc netem`.
-- [x] Validate fallback behavior at and above threshold (`> 15%` loss).
-- [x] Confirm test reproducibility across at least 3 independent runs.
+**CI default vs. kernel netem:** GitHub Actions runs **simulated** loss in integration tests (`datagram_delivery_*pct_loss` drop events in-process; `wan_simulation` skips shaping when `tc netem` is unavailable). That validates protocol logic but is **not** a substitute for a manual Linux campaign with real `tc netem`. Treat section A as satisfied only after the manual campaign below—not from CI green alone.
+
+### CI (simulated / optional shaping)
+
+- [x] Packet-loss integration tests run on every PR (application-level drop, not kernel netem).
+- [x] `wan_simulation` applies `tc netem` when the runner has privileges; otherwise logs and continues without shaping.
+
+### Manual Linux campaign (kernel `tc netem`, root required)
+
+- [ ] Run packet-loss integration tests on a Linux host **with** `tc netem` applied (`scripts/netem_runner.sh`).
+- [ ] Run latency and throughput benches on Linux with and without `tc netem`.
+- [ ] Validate fallback behavior at and above threshold (`> 15%` loss) under real impairment.
+- [ ] Confirm test reproducibility across at least 3 independent runs.
 
 ### Commands
 
@@ -23,13 +32,14 @@ production use in the Synaptic Core stack.
 - `cargo bench --bench latency -- --quick`
 - `cargo bench --features transport-datagrams --bench packet_loss -- --quick`
 - `scripts/netem_runner.sh lo 20 datagram_fallback_trigger`
+- `make netem-test` / `cargo run -p sct-bench -- netem-matrix` (Linux + root)
 
 ### Required Artifacts
 
-- [x] `docs/RESULTS/<date>-linux-netem-baseline.md`
+- [x] `docs/RESULTS/<date>-linux-netem-baseline.md` (historical reference runs)
 - [x] `docs/RESULTS/<date>-linux-netem-5pct.md`
 - [x] `docs/RESULTS/<date>-linux-netem-20pct.md`
-- [x] Raw benchmark JSON/exports attached or linked from each report.
+- [ ] Fresh raw benchmark JSON/exports from a **current** manual netem campaign linked in each report.
 
 ## B) QUIC Primary Path Validation (Required)
 

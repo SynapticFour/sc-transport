@@ -95,7 +95,7 @@ async fn main() -> Result<()> {
             parallel,
             bandwidth,
             resume,
-            verify: _verify,
+            verify,
             json: as_json,
             quiet,
         } => {
@@ -118,6 +118,7 @@ async fn main() -> Result<()> {
                 SenderConfig {
                     max_parallel_chunks: parallel,
                     compression: selected,
+                    require_final_ack: verify,
                     progress_callback: Some(Arc::new(move |p| {
                         if as_json {
                             println!(

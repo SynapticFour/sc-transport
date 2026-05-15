@@ -23,6 +23,9 @@ for bin in "$SCT_SMOKE_BIN" "$SCT_SMOKE_DAEMON_BIN"; do
   fi
 done
 
+echo "==> sct-daemon unit tests"
+cargo test -p sct-daemon -- --test-threads=1
+
 echo "==> sc-transport --test cli_smoke"
 cargo test -p sc-transport --test cli_smoke -- --test-threads=1
 

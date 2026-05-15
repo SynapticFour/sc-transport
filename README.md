@@ -83,7 +83,8 @@ GitHub Actions (`.github/workflows/ci.yml`) runs two jobs on every push/PR:
 - `e2e_loopback` FEC recovery needs `--features test-hooks` (wired in `make test-integration-sct-core` and CI).
 - `streaming_matrix` in CI uses a **smoke** profile (`excellent` × `tiny,small`, 2 repeats). Full matrix locally: see [`docs/NETWORK-EMULATION.md`](docs/NETWORK-EMULATION.md#streaming-only-matrix-no-large-files).
 - Transport integration sets `SC_TRANSPORT_ALLOW_INSECURE_QUIC=true`, `SC_QUIC_CONNECT_TIMEOUT_MS=2000`, `SC_QUIC_MIRROR_SSE=1` (see `scripts/ci-transport-integration.sh`).
-- CLI/daemon smoke builds `sct` + `sct-daemon`, then runs `cli_smoke` / `daemon_smoke` integration tests with `RUST_TEST_THREADS=1` (see `scripts/ci-cli-daemon-smoke.sh`).
+- CLI/daemon smoke builds `sct` + `sct-daemon`, runs `cargo test -p sct-daemon`, then `cli_smoke` / `daemon_smoke` (receive + push REST paths) with `RUST_TEST_THREADS=1` (see `scripts/ci-cli-daemon-smoke.sh`).
+- `sct send --verify` maps to waiting for the receiver `FinalAck` (`require_final_ack`); use `recv --verify` for checksum verification on disk.
 - Benchmark JSON/MD from local runs goes under **`results/`** (gitignored); curated summaries belong in [`docs/RESULTS/`](docs/RESULTS/).
 
 ```bash

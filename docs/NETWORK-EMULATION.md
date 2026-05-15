@@ -7,6 +7,15 @@ This runbook explains how to emulate WAN quality for local `sct` transfer tests.
 
 > Note: both Linux and macOS traffic shaping commands require root privileges.
 
+## CI vs. local / manual netem
+
+| Context | What runs | Kernel `tc netem`? |
+|---------|-----------|-------------------|
+| **GitHub Actions** (`ci-transport-integration.sh`) | `datagram_delivery_5pct_loss` / `20pct_loss` use **in-test simulated drops**; `wan_simulation` calls `NetemGuard::try_apply` and **continues without shaping** if `tc` is unavailable | Usually **no** on default Ubuntu runners |
+| **Local / manual** | `scripts/netem_runner.sh`, `make netem-test`, `sct-bench netem-matrix` | **Yes**, when run as root on Linux |
+
+Do not treat CI green on loss tests as proof of WAN behavior under real impairment. For production readiness section A, run the manual Linux campaign documented in [`PRODUCTION-READINESS-CHECKLIST.md`](PRODUCTION-READINESS-CHECKLIST.md).
+
 ## Single-command local transfer test
 
 Use the `Makefile` wrapper to run receiver + sender + checksum verification in one command.
