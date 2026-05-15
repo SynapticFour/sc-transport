@@ -13,7 +13,8 @@ LOSS ?= 0.008
 SCT_CORE_ITESTS := completion_campaign completion_first_ab delta_transfer transfer_smoke \
 	e2e_loopback fec_recovery prompt5_integration
 
-.PHONY: ci ci-transport-integration ci-cli-daemon-smoke test-unit test-integration test-integration-sct-core
+.PHONY: ci ci-all ci-transport-integration ci-cli-daemon-smoke test-unit test-integration \
+	test-integration-sct-core bench netem-test transfer-test profile-quic-good-large clean-results
 
 ci:
 	cargo fmt --all -- --check
@@ -33,6 +34,11 @@ ci-cli-daemon-smoke:
 
 # Alias for `make ci` (both GitHub Actions jobs).
 ci-all: ci
+
+clean-results:
+	find results -mindepth 1 ! -name README.md -exec rm -rf {} + 2>/dev/null || true
+	rm -rf crates/sct-core/results/*
+	@echo "clean-results: removed gitignored benchmark trees (kept results/README.md)"
 
 test-unit:
 	cargo test --package sct-core --lib

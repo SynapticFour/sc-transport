@@ -4,6 +4,26 @@
 
 This runbook covers operational behavior for `sct-daemon` transfer execution and restart recovery.
 
+## Transfer paths (production vs stub)
+
+| API shape | Implementation |
+|-----------|----------------|
+| `source=sct://…`, local `destination` | **Real:** QUIC receive via `sct-core` `FileReceiver` |
+| `source` = local file, `destination=sct://…` | **Real:** QUIC push via `sct-core` `FileSender` |
+| `source` = local file, local `destination` | **Stub:** `tokio::fs::copy` with simulated progress (not SPARQ wire) |
+| Other remote placeholders | **Stub:** simulated progress only |
+
+CI smoke tests cover receive and push (`tests/integration/daemon_smoke.rs`).
+
+## Container
+
+```bash
+docker build -t sct-daemon:latest .
+docker compose up
+```
+
+Mount `sct.toml` and data volumes per `docker-compose.yml`.
+
 ## Runtime files
 
 - Snapshot: `.sct-daemon/transfers.json`

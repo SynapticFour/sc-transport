@@ -28,7 +28,7 @@ single_run() {
     sudo tc qdisc add dev "${INTERFACE}" root netem loss "${LOSS_PERCENT}%"
   fi
   echo "Running test: ${TEST_NAME}"
-  cargo test --test "${TEST_NAME}"
+  cargo test -p sc-transport --test "${TEST_NAME}"
 }
 
 setup_netem_continental() {

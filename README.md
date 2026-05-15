@@ -47,7 +47,7 @@ cargo run -p sct-cli -- bench sct://127.0.0.1:7272 --samples 5
 cargo run -p sct-bench -- synthetic --samples 5 --payload-mib 64
 
 # Linux only: apply tc/netem good/bad/very-bad matrix and run transfer sizes
-cargo run -p sct-bench -- netem-matrix --interface lo --profile all --sizes-mib 1,16,256,1024 --output-json docs/RESULTS/netem-matrix.json
+make netem-test   # writes docs/RESULTS/<date>-linux-netem-matrix.json
 
 # one-command transfer test wrapper (receiver + sender + checksum)
 make transfer-test PROFILE=toronto-auckland SIZE_GB=20
@@ -57,12 +57,13 @@ For Linux and macOS network emulation playbooks (including a 20 GB Toronto<->Auc
 
 ## Continuous integration
 
-GitHub Actions (`.github/workflows/ci.yml`) runs two jobs on every push/PR:
+Primary gate: GitHub Actions [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (two jobs on every push/PR).
+Additional workflows: `experimental.yml` (datagram benches, non-blocking), `codeql.yml`, `quality-gate.yml`, `secret-scan.yml`, `dependency-review.yml`.
 
 | Job | Local equivalent | What it runs |
 |-----|----------------|--------------|
 | **test** | first part of `make ci` | `fmt`, clippy (`sct-core`, `sct-proto`), `sct-core` lib + integration tests (serial QUIC), cf-check p99 gate, `sct-proto` tests |
-| **workspace-integration** | `make ci-transport-integration` + `make ci-cli-daemon-smoke` (via `make test-integration` / `make ci`) | Clippy + unit tests for transport crates; `scripts/ci-transport-integration.sh` (`streaming_matrix` smoke + SSE/QUIC/datagram integration); `scripts/ci-cli-daemon-smoke.sh` (`sct` loopback + `sct-daemon` REST receive) |
+| **workspace-integration** | `make ci-transport-integration` + `make ci-cli-daemon-smoke` (via `make test-integration` / `make ci`) | Clippy + unit tests for transport crates; `scripts/ci-transport-integration.sh` (`streaming_matrix` smoke + SSE/QUIC/datagram integration); `scripts/ci-cli-daemon-smoke.sh` (`cargo test -p sct-daemon`, `sct` loopback, `sct-daemon` REST receive + push) |
 
 ### Make targets
 
@@ -75,7 +76,9 @@ GitHub Actions (`.github/workflows/ci.yml`) runs two jobs on every push/PR:
 | `make test-integration-sct-core` | sct-core integration binaries only (`RUST_TEST_THREADS=1`). |
 | `make test-unit` | Library/unit tests for sct-core + transport crates. |
 | `make profile-quic-good-large` | Release bench: `good`/`large` `quic-stream` matrix slice (target ≥400 events/s). |
-| `make ci-cli-daemon-smoke` | Subprocess tests: `sct send`/`recv` and `sct-daemon` REST receive. |
+| `make ci-cli-daemon-smoke` | Subprocess tests: `sct send`/`recv` and `sct-daemon` REST (receive + push). |
+| `make netem-test` | Linux+root: full `sct-bench netem-matrix` → dated JSON under `docs/RESULTS/`. |
+| `make clean-results` | Remove gitignored local benchmark trees (`results/`, `crates/sct-core/results/`). |
 
 **Notes**
 
@@ -110,7 +113,8 @@ Troubleshooting highlights:
 - TOFU host-key mismatch: remove stale entries in `~/.sct/known_hosts`.
 - Resume leftovers: partial receive files (`*.part`, `*.state.json`) are expected during interrupted transfers and cleaned up on successful completion.
 
-See [`docs/sct-daemon-ops.md`](docs/sct-daemon-ops.md) for the operator runbook.
+See [`docs/sct-daemon-ops.md`](docs/sct-daemon-ops.md) for the operator runbook. Container:
+`docker build -t sct-daemon:latest .` then `docker compose up` (see `Dockerfile`).
 
 ## Transparency contract
 

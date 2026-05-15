@@ -20,7 +20,7 @@ use std::sync::Mutex as StdMutex;
 use std::time::{Duration, Instant};
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
-use tokio::sync::{mpsc, Mutex, Semaphore};
+use tokio::sync::{mpsc, Mutex};
 
 pub struct FileSender {
     connection: SctConnection,
@@ -193,32 +193,6 @@ impl FileSender {
             m.transfer_loss_rate.observe(loss_rate);
             m.nack_retransmits_total.inc_by(nack_retransmits);
             m.fec_encoded_blocks_total.inc_by(fec_estimate);
-        }
-        Ok(())
-    }
-
-    /// Legacy single-stream send path; kept for fallback / experiments. Production uses [`Self::send_adaptive`].
-    #[allow(dead_code)]
-    async fn send_legacy(
-        &self,
-        full: &[u8],
-        skip: &HashSet<u64>,
-        total_size: u64,
-        manifest: &TransferManifest,
-    ) -> Result<()> {
-        let num_chunks = total_size.div_ceil(self.config.chunk_size as u64);
-        let semaphore = Semaphore::new(self.config.max_parallel_chunks);
-        let start = Instant::now();
-        let mut sent = 0_u64;
-        for idx in 0..num_chunks {
-            if skip.contains(&idx) {
-                continue;
-            }
-            let _permit = semaphore.acquire().await?;
-            let payload = self.build_chunk_payload(full, idx, manifest)?;
-            self.write_chunk_payload(payload).await?;
-            sent += self.chunk_len(full, idx) as u64;
-            self.emit_progress(sent, total_size, start);
         }
         Ok(())
     }
@@ -501,11 +475,6 @@ impl FileSender {
         payload.extend_from_slice(&desc_bytes);
         payload.extend_from_slice(&chunk);
         Ok(payload)
-    }
-
-    #[allow(dead_code)] // used only by [`Self::send_legacy`]
-    async fn write_chunk_payload(&self, payload: Vec<u8>) -> Result<()> {
-        write_packet_payload(&self.connection, payload).await
     }
 
     fn chunk_len(&self, full: &[u8], idx: u64) -> usize {

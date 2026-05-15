@@ -1,5 +1,8 @@
+# Build image first: docker build -t sct-daemon:latest .
+# Or: docker compose build
 services:
   sct-daemon:
+    build: .
     image: sct-daemon:latest
     ports:
       - "7272:7272"

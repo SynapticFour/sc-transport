@@ -11,7 +11,7 @@ Host profile: Linux runner (baseline, no impairment)
 - `cargo test -p sct-core --test prompt5_integration`
 - `cargo bench --bench throughput -- --quick`
 - `cargo bench --bench latency -- --quick`
-- `cargo run -p sct-bench -- --samples 5 --payload-mib 64`
+- `cargo run -p sct-bench -- synthetic --samples 5 --payload-mib 64`
 
 ## Summary
 

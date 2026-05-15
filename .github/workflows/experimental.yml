@@ -40,13 +40,18 @@ jobs:
           print(m.group(1) if m else "0")
           PY
           )"
-          echo "{\"sct_synthetic_throughput_mbps\": ${THROUGHPUT}, \"packet_loss_datagram_delivery_ratio_simulated\": 39.9}" > artifacts/current-bench.json
-          if [ -f artifacts/previous-bench.json ]; then
-            echo "previous benchmark file already present"
-          else
+          echo "{\"sct_synthetic_throughput_mbps\": ${THROUGHPUT}}" > artifacts/current-bench.json
+      - uses: actions/cache@v4
+        with:
+          path: artifacts/previous-bench.json
+          key: experimental-bench-${{ github.ref_name }}
+          restore-keys: experimental-bench-
+      - run: |
+          if [ ! -f artifacts/previous-bench.json ]; then
             cp artifacts/current-bench.json artifacts/previous-bench.json
           fi
-      - run: python3 scripts/compare_bench_results.py artifacts/previous-bench.json artifacts/current-bench.json artifacts/regressions.txt
+          python3 scripts/compare_bench_results.py artifacts/previous-bench.json artifacts/current-bench.json artifacts/regressions.txt
+          cp artifacts/current-bench.json artifacts/previous-bench.json
       - name: Create issue on benchmark regression
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -776,20 +776,6 @@ fn drain_fec_block_from_packets(
     Some(fec.encode_block(&block))
 }
 
-#[allow(dead_code)]
-fn drain_fec_block_if_ready(
-    pending: &mut HashMap<u64, Vec<Packet>>,
-    fec_group: u64,
-    fec: &FecEncoder,
-) -> Option<Vec<Packet>> {
-    let buf = pending.get_mut(&fec_group)?;
-    let encoded = drain_fec_block_from_packets(buf, fec_group, fec)?;
-    if buf.is_empty() {
-        pending.remove(&fec_group);
-    }
-    Some(encoded)
-}
-
 pub struct FecDecoder {
     pub data_shards: usize,
     pub parity_shards: usize,
@@ -799,13 +785,6 @@ impl FecDecoder {
     pub fn reconstructable_shards(&self, shards: &[Option<Packet>]) -> bool {
         let present = shards.iter().filter(|s| s.is_some()).count();
         present >= self.data_shards
-    }
-
-    /// Legacy XOR helper (pre–Reed–Solomon wire format). RS recovery is implemented on the receiver.
-    #[allow(dead_code)]
-    pub fn recover_single_missing(&self, shards: &mut [Option<Packet>]) -> Option<Packet> {
-        let _ = shards;
-        None
     }
 }
 
