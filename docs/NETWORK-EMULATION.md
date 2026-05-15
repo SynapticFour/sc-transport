@@ -34,7 +34,7 @@ For **library-level** loopback measurements (same wiring as `sct-core` integrati
 
 **Sizing (important):** A single very large payload in this harness can stall or hit QUIC/runtime edge cases on some hosts. To keep the run stable while still moving **tens of megabytes** so handshake noise is small relative to payload, prefer **many iterations of ~1 MiB** (defaults below: 32 × 1 MiB ≈ **32 MiB** aggregate). Use **`aggregate_goodput_mbps`** as end-to-end goodput for that aggregate volume; per-iteration fields show jitter.
 
-Optional knobs: `SC_SCT_ADAPTIVE_LOSS_HINT`, `SC_SCT_ADAPTIVE_BATCH_SIZE`, etc. **`FileSender`** (QUIC send path) always sets **`completion_first_enabled`** on **`AutopilotRuntime`**; **`SC_SCT_COMPLETION_FIRST` does not toggle that path**. Integration tests that construct their own runtime (e.g. **`completion_campaign`**) still honor **`SC_SCT_COMPLETION_FIRST`** for A/B. The **`AutopilotRuntime`** stack always runs **predictive stabilization** (forecast + damping); there is no separate env flag to disable it.
+Optional knobs: `SC_SCT_ADAPTIVE_LOSS_HINT`, `SC_SCT_ADAPTIVE_BATCH_SIZE`, etc. **`FileSender`** (QUIC send path) always sets **`completion_first_enabled`** on **`AutopilotRuntime`**; **`SC_SCT_COMPLETION_FIRST` does not toggle that path**. The **`completion_campaign_metrics`** test uses the same default (**`completion_first_enabled: true`** only) and does not read **`SC_SCT_COMPLETION_FIRST`**. For an explicit off-vs-on KPI comparison in tests, use **`completion_first_ab`** (`crates/sct-core/tests/completion_first_ab.rs`). The **`AutopilotRuntime`** stack always runs **predictive stabilization** (forecast + damping); there is no separate env flag to disable it.
 
 ```bash
 cd sc-transport
@@ -81,7 +81,7 @@ The adaptive **`AutopilotRuntime`** path (used by **`FileSender`**, **`bench-tra
 - `utility_oscillation_events`, `queue_overshoot_events`
 - `utility_stability_ewma`, `congestion_forecast_confidence`, `congestion_recovery_ticks`
 
-Use them when comparing **`completion_campaign`** A/B or custom benches—not only peak goodput.
+Use them when comparing **`completion_first_ab`** runs, **`completion_campaign_metrics`** snapshots, or custom benches—not only peak goodput.
 
 ### Tuning
 
@@ -239,6 +239,9 @@ For CI on macOS runners:
 
 ## Streaming-only matrix (no large files)
 
+Outputs default to **`results/`** at the repo root (gitignored; see `results/README.md`).
+Use **`docs/RESULTS/`** for committed measurement write-ups.
+
 For low-disk environments, run the streaming matrix integration test:
 
 ```bash
@@ -331,21 +334,19 @@ Notes:
 
 ## Completion-first campaign (sct-core)
 
-Run A/B for block completion KPIs:
+**`completion_campaign_metrics`** writes **`completion-campaign-summary.json`** when **`SC_TRANSPORT_ARTIFACT_DIR`** is set. The summary always has **`completion_first: true`** (aligned with **`FileSender`**). Relative paths under **`SC_TRANSPORT_ARTIFACT_DIR`** are resolved from the **workspace root** (integration tests’ cwd is **`crates/sct-core`**).
+
+Cf-check snapshot (overwrites **`results/cf-check/completion-campaign-summary.json`**):
 
 ```bash
-# A: completion-first off
-SC_TRANSPORT_ARTIFACT_DIR=results/cf-A \
-SC_SCT_COMPLETION_FIRST=0 \
-cargo test -p sct-core --test completion_campaign completion_campaign_metrics
-
-# B: completion-first on
-SC_TRANSPORT_ARTIFACT_DIR=results/cf-B \
-SC_SCT_COMPLETION_FIRST=1 \
-cargo test -p sct-core --test completion_campaign completion_campaign_metrics
+cd sc-transport
+SC_TRANSPORT_ARTIFACT_DIR=results/cf-check \
+  cargo test -p sct-core --test completion_campaign completion_campaign_metrics -- --exact
 ```
 
-Compare:
+**A/B off vs on** for completion-first behavior is exercised by **`completion_first_ab`** (single test: baseline **`false`** vs completion **`true`**), not by toggling env for **`completion_campaign`**.
+
+To compare two saved JSON summaries (e.g. archived **`results/cf-A`** / **`results/cf-B`** from older runs where **`completion_first`** differed, or any two files you maintain):
 
 ```bash
 python3 scripts/compare_completion_campaign.py \

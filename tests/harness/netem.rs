@@ -1,8 +1,10 @@
+#[allow(dead_code)]
 #[cfg(target_os = "linux")]
 pub fn supported() -> bool {
     true
 }
 
+#[allow(dead_code)]
 #[cfg(not(target_os = "linux"))]
 pub fn supported() -> bool {
     false
@@ -18,6 +20,7 @@ pub fn clear(interface: &str) -> String {
     format!("tc qdisc del dev {interface} root")
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct NetemConfig {
     pub interface: String,
@@ -57,6 +60,7 @@ impl NetemConfig {
     }
 }
 
+#[allow(dead_code)]
 pub struct NetemGuard {
     interface: String,
     original_config: Option<String>,

@@ -3,6 +3,8 @@ use std::time::Duration;
 #[cfg(feature = "quic-streams")]
 use std::time::Instant;
 #[cfg(feature = "quic-streams")]
+use tokio::io::AsyncWriteExt;
+#[cfg(feature = "quic-streams")]
 use tokio::sync::Semaphore;
 #[cfg(feature = "quic-streams")]
 use tokio::task::JoinSet;
@@ -18,8 +20,8 @@ pub struct BatchSender {
 impl Default for BatchSender {
     fn default() -> Self {
         Self {
-            max_parallel_streams: 8,
-            chunk_size: 64,
+            max_parallel_streams: 16,
+            chunk_size: 128,
         }
     }
 }
@@ -58,17 +60,25 @@ impl BatchSender {
                 let Ok(mut stream) = stream else {
                     return (0_usize, 1_usize);
                 };
-                for e in chunk_events {
-                    if QuicStreamTransport::write_framed_event(&mut stream, &e)
-                        .await
-                        .is_ok()
-                    {
-                        sent += 1;
-                    } else {
-                        failed = true;
-                        break;
+                let framed = if chunk_events.len() == 1 {
+                    QuicStreamTransport::frame_event(&chunk_events[0])
+                } else {
+                    QuicStreamTransport::frame_event_batch(&chunk_events)
+                };
+                match framed {
+                    Ok(bytes) => {
+                        if QuicStreamTransport::write_framed_bytes(&mut stream, &bytes)
+                            .await
+                            .is_ok()
+                        {
+                            sent = chunk_events.len();
+                        } else {
+                            failed = true;
+                        }
                     }
+                    Err(_) => failed = true,
                 }
+                let _ = stream.flush().await;
                 let _ = stream.finish();
                 if failed {
                     (sent, 1_usize)
@@ -155,6 +165,9 @@ mod tests {
         let events = (0..200).map(|i| mk("x", i)).collect::<Vec<_>>();
         let chunk_count = events.chunks(b.chunk_size).count();
         assert_eq!(chunk_count, 4);
+        let default = BatchSender::default();
+        let default_chunks = events.chunks(default.chunk_size).count();
+        assert_eq!(default_chunks, 2);
     }
 
     #[tokio::test]

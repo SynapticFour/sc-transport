@@ -55,6 +55,43 @@ make transfer-test PROFILE=toronto-auckland SIZE_GB=20
 
 For Linux and macOS network emulation playbooks (including a 20 GB Toronto<->Auckland example), see [`docs/NETWORK-EMULATION.md`](docs/NETWORK-EMULATION.md).
 
+## Continuous integration
+
+GitHub Actions (`.github/workflows/ci.yml`) runs two jobs on every push/PR:
+
+| Job | Local equivalent | What it runs |
+|-----|----------------|--------------|
+| **test** | first part of `make ci` | `fmt`, clippy (`sct-core`, `sct-proto`), `sct-core` lib + integration tests (serial QUIC), cf-check p99 gate, `sct-proto` tests |
+| **workspace-integration** | `make ci-transport-integration` + `make ci-cli-daemon-smoke` (via `make test-integration` / `make ci`) | Clippy + unit tests for transport crates; `scripts/ci-transport-integration.sh` (`streaming_matrix` smoke + SSE/QUIC/datagram integration); `scripts/ci-cli-daemon-smoke.sh` (`sct` loopback + `sct-daemon` REST receive) |
+
+### Make targets
+
+| Target | Use when |
+|--------|----------|
+| `make ci` | Full pre-push gate (**both** CI jobs: sct-core + transport). |
+| `make ci-transport-integration` | Transport workspace only (CI job `workspace-integration`). |
+| `make ci-all` | Alias for `make ci`. |
+| `make test-integration` | All integration tests, no fmt/clippy/cf-check (~fast feedback while iterating). |
+| `make test-integration-sct-core` | sct-core integration binaries only (`RUST_TEST_THREADS=1`). |
+| `make test-unit` | Library/unit tests for sct-core + transport crates. |
+| `make profile-quic-good-large` | Release bench: `good`/`large` `quic-stream` matrix slice (target ≥400 events/s). |
+| `make ci-cli-daemon-smoke` | Subprocess tests: `sct send`/`recv` and `sct-daemon` REST receive. |
+
+**Notes**
+
+- sct-core integration tests must run **serially** (`--test-threads=1`); the Makefile sets `RUST_TEST_THREADS=1`.
+- `e2e_loopback` FEC recovery needs `--features test-hooks` (wired in `make test-integration-sct-core` and CI).
+- `streaming_matrix` in CI uses a **smoke** profile (`excellent` × `tiny,small`, 2 repeats). Full matrix locally: see [`docs/NETWORK-EMULATION.md`](docs/NETWORK-EMULATION.md#streaming-only-matrix-no-large-files).
+- Transport integration sets `SC_TRANSPORT_ALLOW_INSECURE_QUIC=true`, `SC_QUIC_CONNECT_TIMEOUT_MS=2000`, `SC_QUIC_MIRROR_SSE=1` (see `scripts/ci-transport-integration.sh`).
+- CLI/daemon smoke builds `sct` + `sct-daemon`, then runs `cli_smoke` / `daemon_smoke` integration tests with `RUST_TEST_THREADS=1` (see `scripts/ci-cli-daemon-smoke.sh`).
+- Benchmark JSON/MD from local runs goes under **`results/`** (gitignored); curated summaries belong in [`docs/RESULTS/`](docs/RESULTS/).
+
+```bash
+make ci              # full gate (both CI jobs)
+make test-integration
+make profile-quic-good-large   # optional performance regression check
+```
+
 ## sct-daemon operations
 
 The daemon provides transfer queueing, priority updates, cancellation, and restart recovery.

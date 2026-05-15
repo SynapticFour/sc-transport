@@ -9,15 +9,65 @@ RATE_MBIT ?= 80
 DELAY_MS ?= 110
 LOSS ?= 0.008
 
-test-unit:
-	cargo test
+# Serial sct-core integration binaries (matches .github/workflows/ci.yml job `test`).
+SCT_CORE_ITESTS := completion_campaign completion_first_ab delta_transfer transfer_smoke \
+	e2e_loopback fec_recovery prompt5_integration
 
-test-integration:
-	cargo test --tests
-	cargo test -p sct-core --test prompt5_integration
+.PHONY: ci ci-transport-integration ci-cli-daemon-smoke test-unit test-integration test-integration-sct-core
+
+ci:
+	cargo fmt --all -- --check
+	cargo clippy -p sct-core -p sct-proto --all-targets --all-features -- -D warnings
+	cargo test --package sct-core --lib
+	$(MAKE) test-integration
+	SC_TRANSPORT_ARTIFACT_DIR=results/cf-check \
+		cargo test --package sct-core --test completion_campaign completion_campaign_metrics -- --exact
+	cargo test --package sct-proto
+	@echo "ci: OK"
+
+ci-transport-integration:
+	bash scripts/ci-transport-integration.sh
+
+ci-cli-daemon-smoke:
+	bash scripts/ci-cli-daemon-smoke.sh
+
+# Alias for `make ci` (both GitHub Actions jobs).
+ci-all: ci
+
+test-unit:
+	cargo test --package sct-core --lib
+	cargo test -p sc-transport-core
+	cargo test -p sc-transport-quic --features quic-streams
+	cargo test -p sc-transport-sse
+	cargo test -p sc-transport-datagrams --features quic-datagrams
+
+test-integration-sct-core:
+	@export RUST_TEST_THREADS=1; \
+	for t in $(SCT_CORE_ITESTS); do \
+		echo "==> sct-core --test $$t"; \
+		features=; \
+		[ "$$t" = e2e_loopback ] && features="--features test-hooks"; \
+		cargo test --package sct-core --test $$t $$features -- --test-threads=1; \
+	done
+
+# All integration tests (no fmt/clippy/cf-check). Same binaries as CI integration steps.
+test-integration: test-integration-sct-core ci-transport-integration ci-cli-daemon-smoke
 
 bench:
 	cargo run -p sct-bench -- synthetic --samples 5 --payload-mib 64
+
+# good/large quic-stream matrix slice (target ≥400 eps); writes /tmp/streaming-matrix-summary.json
+profile-quic-good-large:
+	SC_TRANSPORT_ALLOW_INSECURE_QUIC=true \
+	SC_STREAM_MATRIX_QUALITIES=good \
+	SC_STREAM_MATRIX_PAYLOADS=large \
+	SC_STREAM_MATRIX_REPEATS=5 \
+	SC_TRANSPORT_ARTIFACT_DIR=/tmp \
+	cargo test --release -p sc-transport --features transport-quic,transport-datagrams --test streaming_matrix streaming_transport_matrix_without_files -- --exact --nocapture
+	@python3 -c "import json,sys; s=json.load(open('/tmp/streaming-matrix-summary.json')); \
+q=[x for x in s['summaries'] if x['transport']=='quic-stream' and x['quality']=='good' and x['payload']=='large']; \
+eps=q[0]['events_per_s_p50'] if q else 0; print(f'quic-stream good/large eps p50={eps:.1f}'); \
+sys.exit(0 if eps>=400 else 1)"
 
 netem-test:
 	@if [ "$$(uname -s)" != "Linux" ]; then \

@@ -6,6 +6,10 @@
 /.sct-daemon/
 crates/sct-daemon/.sct-daemon/
 
+# Local matrix/benchmark script output (see results/README.md)
+results/*
+!results/README.md
+
 # Generated artifacts and caches
 .svelte-kit/
 .astro/

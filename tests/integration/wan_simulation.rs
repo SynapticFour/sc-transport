@@ -57,7 +57,7 @@ async fn quic_stream_continental_wan_delivery() {
                 }
             }
         };
-        let _ = timeout(Duration::from_secs(30), fut)
+        timeout(Duration::from_secs(30), fut)
             .await
             .expect("timeout");
         assert!(delivered >= 490);

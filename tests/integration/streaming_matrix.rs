@@ -269,9 +269,60 @@ fn make_event(
 
 fn events_for_transport(transport_name: &str, requested: u64) -> u64 {
     match transport_name {
-        "quic-stream" => requested.min(20),
+        // Datagram path is lossy; keep matrix runtime bounded on poor links.
         "quic-datagram" => requested.min(40),
         _ => requested,
+    }
+}
+
+async fn run_quic_stream_batch_case(
+    run: u32,
+    quic: &QuicStreamTransport,
+    quality: QualityProfile,
+    payload: PayloadProfile,
+) -> CaseResult {
+    let transport_name = "quic-stream";
+    let run_id = format!("matrix-{transport_name}-{}-{}", quality.name, payload.name);
+    let attempted = events_for_transport(transport_name, payload.events);
+    let closed_loop = closed_loop_enabled();
+    let started = Instant::now();
+    let events: Vec<TelemetryEvent> = (0..attempted)
+        .map(|i| {
+            let loss_signal = false;
+            make_event(&run_id, i, payload.bytes, quality, loss_signal)
+        })
+        .collect();
+    let batch = quic
+        .send_events_batch(&run_id, events)
+        .await
+        .expect("quic batch send");
+    let elapsed_s = started.elapsed().as_secs_f64().max(0.000_001);
+    let sent = batch.sent_events as u64;
+    let dropped = attempted.saturating_sub(sent);
+    let (mode_switch_count, effective_parity_rate, feedback_lag_ms) =
+        estimate_adaptive_metrics(closed_loop, quality, attempted, dropped, 0);
+    let (duplication_rate, deadline_miss_rate, tail_ratio_p99_p50) =
+        estimate_aggressive_tail_metrics(closed_loop, quality, attempted, dropped, 0);
+    CaseResult {
+        run,
+        transport: transport_name.to_string(),
+        quality: quality.name.to_string(),
+        payload: payload.name.to_string(),
+        payload_bytes: payload.bytes,
+        events_attempted: attempted,
+        sent,
+        delivered: 0,
+        dropped,
+        fallback: 0,
+        elapsed_s,
+        events_per_s: attempted as f64 / elapsed_s,
+        closed_loop,
+        mode_switch_count,
+        effective_parity_rate,
+        feedback_lag_ms,
+        duplication_rate,
+        deadline_miss_rate,
+        tail_ratio_p99_p50,
     }
 }
 
@@ -449,6 +500,7 @@ async fn spawn_stream_sink_server() -> SocketAddr {
         ServerConfig::with_single_cert(vec![cert_der], key_der.into()).expect("server cfg");
     if let Some(transport) = std::sync::Arc::get_mut(&mut server_config.transport) {
         transport.max_concurrent_bidi_streams(2048_u32.into());
+        transport.max_concurrent_uni_streams(2048_u32.into());
     }
     let endpoint = Endpoint::server(server_config, SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
         .expect("server");
@@ -463,17 +515,21 @@ async fn spawn_stream_sink_server() -> SocketAddr {
                 let conn_uni = conn.clone();
                 let uni_task = tokio::spawn(async move {
                     while let Ok(mut recv_uni) = conn_uni.accept_uni().await {
-                        while QuicStreamTransport::read_framed_event(&mut recv_uni)
+                        while QuicStreamTransport::read_framed_events(&mut recv_uni)
                             .await
-                            .is_ok()
+                            .map(|v| v.len())
+                            .unwrap_or(0)
+                            > 0
                         {}
                     }
                 });
                 let bi_task = tokio::spawn(async move {
                     while let Ok((_send, mut recv_bi)) = conn.accept_bi().await {
-                        while QuicStreamTransport::read_framed_event(&mut recv_bi)
+                        while QuicStreamTransport::read_framed_events(&mut recv_bi)
                             .await
-                            .is_ok()
+                            .map(|v| v.len())
+                            .unwrap_or(0)
+                            > 0
                         {}
                     }
                 });
@@ -538,7 +594,11 @@ async fn streaming_transport_matrix_without_files() {
         for &q in &qualities {
             for &p in &payloads {
                 results.push(run_case(run, "sse", &sse, q, p).await);
-                results.push(run_case(run, "quic-stream", &quic, q, p).await);
+                if p.name == "large" {
+                    results.push(run_quic_stream_batch_case(run, &quic, q, p).await);
+                } else {
+                    results.push(run_case(run, "quic-stream", &quic, q, p).await);
+                }
                 results.push(run_case(run, "quic-datagram", &datagram, q, p).await);
             }
         }

@@ -31,7 +31,7 @@ async fn datagram_delivery_5pct_loss_simulated() {
         if let Ok(Some(Ok(_))) = timeout(Duration::from_millis(3), stream.next()).await {
             seen += 1;
             // simulate 5% app/network loss by dropping every 20th event at receiver
-            if seen % 20 != 0 {
+            if !seen.is_multiple_of(20) {
                 app_received += 1;
             }
         }

@@ -4,6 +4,7 @@ use sc_transport_quic::QuicStreamTransport;
 
 #[tokio::test]
 async fn quic_stream_reconnect_resubscribe_receives_events() {
+    std::env::set_var("SC_QUIC_MIRROR_SSE", "1");
     let transport = QuicStreamTransport::new();
     let run_id = "quic-reconnect";
 

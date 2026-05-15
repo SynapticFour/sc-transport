@@ -1,72 +1,90 @@
-name: sc-transport CI
+name: CI
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
 
 jobs:
-  build:
-    if: github.actor != 'dependabot[bot]'
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-        rust: [stable]
+  test:
+    name: Test suite
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ matrix.rust }}
           components: clippy, rustfmt
-      - run: cargo build --workspace --all-features
-      - run: cargo test --workspace
-      - run: cargo clippy --workspace --all-features -- -D warnings
-      - run: cargo fmt --all -- --check
 
-  test-transport-core:
-    if: github.actor != 'dependabot[bot]'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test -p sc-transport-core
-      - run: cargo test -p sc-transport-quic --features quic-streams
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
 
-  test-integration:
-    if: github.actor != 'dependabot[bot]'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --test sse_basic
-      - run: cargo test --features transport-quic --test quic_stream_basic
-      - run: cargo test --features "transport-quic transport-datagrams" --test transport_transparency
+      - name: Format check
+        run: cargo fmt --all -- --check
 
-  test-prompt5-sct-core:
-    if: github.actor != 'dependabot[bot]'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - name: sct-core integration tests (sequential)
-        run: bash scripts/test_sct_core_integration.sh
+      - name: Clippy
+        run: cargo clippy -p sct-core -p sct-proto --all-targets --all-features -- -D warnings
 
-  test-sct-rucio-plugin:
-    if: github.actor != 'dependabot[bot]'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-      - name: Install plugin test deps
+      - name: Unit tests (lib)
+        run: cargo test --package sct-core --lib
+
+      - name: Integration tests (serial QUIC loopback)
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ./sct-rucio
-          python -m pip install -r ./sct-rucio/requirements-dev.txt
-      - name: Run pytest for sct-rucio
-        run: python -m pytest ./sct-rucio/tests --maxfail=1 --disable-warnings --junitxml=sct-rucio-pytest.xml
-      - name: Upload sct-rucio pytest report
-        if: always()
-        uses: actions/upload-artifact@v7
+          export RUST_TEST_THREADS=1
+          for t in completion_campaign completion_first_ab delta_transfer transfer_smoke \
+            e2e_loopback fec_recovery prompt5_integration; do
+            echo "==> sct-core --test $t"
+            features=
+            [ "$t" = e2e_loopback ] && features="--features test-hooks"
+            cargo test --package sct-core --test "$t" $features -- --test-threads=1
+          done
+
+      - name: cf-check (completion_first regression)
+        run: |
+          SC_TRANSPORT_ARTIFACT_DIR=/tmp/cf-check \
+            cargo test --package sct-core --test completion_campaign completion_campaign_metrics -- --exact
+          p99=$(jq .p99_completion_ms /tmp/cf-check/completion-campaign-summary.json)
+          echo "cf-check p99=${p99}ms"
+          python3 -c "assert ${p99} < 5.0, f'cf-check p99 regression: {${p99}}ms >= 5ms'"
+
+      - name: Proto tests
+        run: cargo test --package sct-proto
+
+  # Mirrors `make ci-transport-integration` (see README § Continuous integration).
+  workspace-integration:
+    name: sc-transport integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
         with:
-          name: sct-rucio-pytest-report
-          path: sct-rucio-pytest.xml
+          components: clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Clippy (transport workspace)
+        run: |
+          cargo clippy -p sc-transport -p sc-transport-core -p sc-transport-quic \
+            -p sc-transport-sse -p sc-transport-datagrams \
+            --all-targets --features transport-quic,transport-datagrams -- -D warnings
+
+      - name: Unit tests (transport crates)
+        run: |
+          cargo test -p sc-transport-core
+          cargo test -p sc-transport-quic --features quic-streams
+          cargo test -p sc-transport-sse
+          cargo test -p sc-transport-datagrams --features quic-datagrams
+
+      - name: Integration tests (streaming_matrix + transports)
+        run: bash scripts/ci-transport-integration.sh
+
+      - name: CLI and daemon smoke tests
+        run: bash scripts/ci-cli-daemon-smoke.sh

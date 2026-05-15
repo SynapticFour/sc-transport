@@ -42,6 +42,28 @@ impl Default for ReceiverConfig {
     }
 }
 
+/// Comma-separated chunk indices dropped before persist/FEC (`test-hooks` feature only).
+#[cfg(feature = "test-hooks")]
+pub const TEST_SIMULATE_LOST_CHUNK_INDICES_ENV: &str = "SC_SCT_TEST_SIMULATE_LOST_CHUNK_INDICES";
+
+#[cfg(feature = "test-hooks")]
+fn simulated_lost_chunks_from_env() -> HashSet<u64> {
+    std::env::var(TEST_SIMULATE_LOST_CHUNK_INDICES_ENV)
+        .ok()
+        .map(|s| {
+            s.split(',')
+                .filter_map(|p| p.trim().parse().ok())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[cfg(not(feature = "test-hooks"))]
+#[inline]
+fn simulated_lost_chunks_from_env() -> HashSet<u64> {
+    HashSet::new()
+}
+
 impl FileReceiver {
     pub fn new(endpoint: SctEndpoint, output_dir: PathBuf, config: ReceiverConfig) -> Self {
         Self {
@@ -69,6 +91,7 @@ impl FileReceiver {
             None
         };
         let mut fec_groups: HashMap<u64, Vec<Option<Vec<u8>>>> = HashMap::new();
+        let simulate_lost = simulated_lost_chunks_from_env();
 
         fs::create_dir_all(&self.output_dir).await?;
         let final_path = self.output_dir.join(&manifest.filename);
@@ -206,11 +229,9 @@ impl FileReceiver {
                     .or_insert_with(|| vec![None; manifest.data_shards + manifest.parity_shards]);
                 let pi = desc.parity_index.saturating_add(manifest.data_shards);
                 if pi < group.len() {
-                    let mut framed = Vec::with_capacity(4 + desc_buf.len() + payload.len());
-                    framed.extend_from_slice(&len_buf);
-                    framed.extend_from_slice(&desc_buf);
-                    framed.extend_from_slice(&payload);
-                    group[pi] = Some(framed);
+                    // RS parity column on the sender is the raw encoded row (`row`), not
+                    // `frame_fec_wire_shard(row)`; data columns use the full framed chunk payload.
+                    group[pi] = Some(payload);
                 }
                 try_fec_group_recover(
                     g,
@@ -233,6 +254,9 @@ impl FileReceiver {
             }
             let mut payload = vec![0_u8; desc.compressed_size as usize];
             stream.read_exact(&mut payload).await?;
+            if simulate_lost.contains(&desc.index) {
+                continue;
+            }
             if self.config.verify_checksums {
                 let got = *blake3::hash(&payload).as_bytes();
                 if got != desc.checksum {
@@ -403,6 +427,50 @@ async fn persist_framed_chunk(
     Ok(())
 }
 
+/// Data-slot indices in `fec_group` that are absent on the wire and not yet persisted.
+fn fec_missing_data_slots(
+    group: &[Option<Vec<u8>>],
+    manifest: &TransferManifest,
+    fec_group: u64,
+    received_chunks: &HashSet<u64>,
+) -> Vec<usize> {
+    let ds = manifest.data_shards.max(1) as u64;
+    (0..manifest.data_shards)
+        .filter(|&slot| {
+            let chunk_idx = fec_group.saturating_mul(ds).saturating_add(slot as u64);
+            !received_chunks.contains(&chunk_idx)
+                && group.get(slot).and_then(|s| s.as_ref()).is_none()
+        })
+        .collect()
+}
+
+/// True when RS can run: at least one data shard and `data_shards` total shards on the wire.
+fn fec_recovery_ready(group: &[Option<Vec<u8>>], manifest: &TransferManifest) -> bool {
+    let total = manifest.data_shards + manifest.parity_shards;
+    if group.len() != total {
+        return false;
+    }
+    let data_present = (0..manifest.data_shards)
+        .filter(|&i| group.get(i).and_then(|s| s.as_ref()).is_some())
+        .count();
+    if data_present == 0 {
+        return false;
+    }
+    group.iter().filter(|s| s.is_some()).count() >= manifest.data_shards
+}
+
+fn peek_framed_chunk_index(wire: &[u8]) -> Result<u64> {
+    if wire.len() < 4 {
+        return Err(anyhow::anyhow!("truncated chunk stream"));
+    }
+    let desc_len = u32::from_be_bytes(wire[0..4].try_into().unwrap()) as usize;
+    if wire.len() < 4 + desc_len {
+        return Err(anyhow::anyhow!("truncated chunk descriptor"));
+    }
+    let desc: ChunkDescriptor = decode(&wire[4..4 + desc_len])?;
+    Ok(desc.index)
+}
+
 async fn try_fec_group_recover(
     fec_group: u64,
     fec_groups: &mut HashMap<u64, Vec<Option<Vec<u8>>>>,
@@ -415,12 +483,8 @@ async fn try_fec_group_recover(
     let Some(group) = fec_groups.get(&fec_group) else {
         return Ok(());
     };
-    let total = manifest.data_shards + manifest.parity_shards;
-    if group.len() != total {
-        return Ok(());
-    }
-    let received = group.iter().filter(|s| s.is_some()).count();
-    if received < manifest.data_shards {
+    let missing = fec_missing_data_slots(group, manifest, fec_group, received_chunks);
+    if missing.is_empty() || !fec_recovery_ready(group, manifest) {
         return Ok(());
     }
     let mut max_len = 0usize;
@@ -440,17 +504,144 @@ async fn try_fec_group_recover(
             })
         })
         .collect();
-    rs.reconstruct(&mut shards)
-        .map_err(|e| anyhow::anyhow!("fec reconstruct: {e:?}"))?;
-    for i in 0..manifest.data_shards {
-        if let Some(bytes) = shards.get(i).and_then(|s| s.as_ref()) {
-            persist_framed_chunk(bytes, manifest, out, received_chunks, verify_checksums).await?;
+    if rs.reconstruct_data(&mut shards).is_err() {
+        return Ok(());
+    }
+    let ds = manifest.data_shards.max(1) as u64;
+    let mut recovered_any = false;
+    for slot in missing {
+        let chunk_idx = fec_group.saturating_mul(ds).saturating_add(slot as u64);
+        let Some(bytes) = shards.get(slot).and_then(|s| s.as_ref()) else {
+            continue;
+        };
+        let Ok(recovered_index) = peek_framed_chunk_index(bytes) else {
+            continue;
+        };
+        if recovered_index != chunk_idx {
+            continue;
+        }
+        persist_framed_chunk(bytes, manifest, out, received_chunks, verify_checksums).await?;
+        recovered_any = true;
+    }
+    if recovered_any {
+        let still_missing = fec_missing_data_slots(group, manifest, fec_group, received_chunks);
+        if still_missing.is_empty() {
+            fec_groups.remove(&fec_group);
         }
     }
-    fec_groups.remove(&fec_group);
     Ok(())
 }
 
 fn hex_transfer_id(id: [u8; 16]) -> String {
     id.iter().map(|b| format!("{b:02x}")).collect::<String>()
+}
+
+#[cfg(all(test, feature = "test-hooks"))]
+mod test_hooks_tests {
+    use super::*;
+
+    #[test]
+    fn parses_simulated_lost_indices_from_env() {
+        std::env::set_var(TEST_SIMULATE_LOST_CHUNK_INDICES_ENV, "1, 3,5");
+        let got = simulated_lost_chunks_from_env();
+        std::env::remove_var(TEST_SIMULATE_LOST_CHUNK_INDICES_ENV);
+        assert_eq!(got, HashSet::from([1, 3, 5]));
+    }
+}
+
+#[cfg(test)]
+mod fec_recovery_plan_tests {
+    use super::*;
+
+    #[test]
+    fn recovery_not_ready_without_enough_total_shards() {
+        let group = vec![
+            Some(vec![1]),
+            None,
+            None,
+            None,
+            Some(vec![2]),
+            None,
+        ];
+        let manifest = TransferManifest {
+            transfer_id: [0; 16],
+            filename: "t".into(),
+            total_size: 0,
+            chunk_size: 1,
+            num_chunks: 4,
+            checksum_algorithm: sct_proto::ChecksumAlg::Blake3,
+            file_checksum: [0; 32],
+            compression: sct_proto::CompressionType::None,
+            metadata: Default::default(),
+            data_shards: 4,
+            parity_shards: 2,
+        };
+        assert!(!fec_recovery_ready(&group, &manifest));
+    }
+
+    #[test]
+    fn recovery_ready_with_one_data_and_one_parity() {
+        let group = vec![Some(vec![1]), None, Some(vec![2]), None];
+        let manifest = TransferManifest {
+            transfer_id: [0; 16],
+            filename: "t".into(),
+            total_size: 0,
+            chunk_size: 1,
+            num_chunks: 2,
+            checksum_algorithm: sct_proto::ChecksumAlg::Blake3,
+            file_checksum: [0; 32],
+            compression: sct_proto::CompressionType::None,
+            metadata: Default::default(),
+            data_shards: 2,
+            parity_shards: 2,
+        };
+        assert!(fec_recovery_ready(&group, &manifest));
+    }
+
+    #[test]
+    fn recovery_not_ready_with_parity_only() {
+        let group = vec![None, None, Some(vec![1]), Some(vec![2])];
+        let manifest = TransferManifest {
+            transfer_id: [0; 16],
+            filename: "t".into(),
+            total_size: 0,
+            chunk_size: 1,
+            num_chunks: 2,
+            checksum_algorithm: sct_proto::ChecksumAlg::Blake3,
+            file_checksum: [0; 32],
+            compression: sct_proto::CompressionType::None,
+            metadata: Default::default(),
+            data_shards: 2,
+            parity_shards: 2,
+        };
+        assert!(!fec_recovery_ready(&group, &manifest));
+    }
+
+    #[test]
+    fn recovery_ready_when_three_data_and_two_parity() {
+        let group = vec![
+            Some(vec![1]),
+            None,
+            Some(vec![2]),
+            Some(vec![3]),
+            Some(vec![4]),
+            Some(vec![5]),
+        ];
+        let manifest = TransferManifest {
+            transfer_id: [0; 16],
+            filename: "t".into(),
+            total_size: 0,
+            chunk_size: 1,
+            num_chunks: 4,
+            checksum_algorithm: sct_proto::ChecksumAlg::Blake3,
+            file_checksum: [0; 32],
+            compression: sct_proto::CompressionType::None,
+            metadata: Default::default(),
+            data_shards: 4,
+            parity_shards: 2,
+        };
+        let missing = fec_missing_data_slots(&group, &manifest, 0, &HashSet::new());
+        assert_eq!(missing, vec![1]);
+        assert!(fec_recovery_ready(&group, &manifest));
+    }
 }

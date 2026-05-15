@@ -9,7 +9,7 @@
 //!   cargo run -p sct-core --example bench-transfer --release
 //! ```
 //!
-//! Optional: `SC_SCT_BENCH_TIMEOUT_SECS` (default 180), `SC_SCT_COMPLETION_FIRST=1`, etc.
+//! Optional: `SC_SCT_BENCH_TIMEOUT_SECS` (default 180), `SC_SCT_ADAPTIVE_LOSS_HINT`, etc.
 
 use anyhow::{Context, Result};
 use sct_core::receiver::{FileReceiver, ReceiverConfig};
@@ -129,7 +129,7 @@ async fn one_transfer(payload_bytes: usize, port_hint: u16) -> Result<f64> {
     match prev_home {
         Some(h) => std::env::set_var("HOME", h),
         None => {
-            let _ = std::env::remove_var("HOME");
+            std::env::remove_var("HOME");
         }
     }
 

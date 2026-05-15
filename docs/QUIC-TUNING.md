@@ -19,6 +19,23 @@
 - Use `pf` + `dummynet` (`pfctl` + `dnctl`) as the macOS equivalent of Linux `tc netem`.
 - See [`docs/NETWORK-EMULATION.md`](NETWORK-EMULATION.md) for command-ready profiles and cleanup.
 
+## QUIC stream throughput (matrix / good + large)
+
+Target for competitive baseline: **≥400 events/s** on `good` / `large` (262 KiB payloads, loopback).
+
+| Knob | Default | Effect |
+|------|---------|--------|
+| `SC_QUIC_PERSISTENT_UNI` | `true` | Reuse one uni stream per connection instead of `open_uni` per event |
+| `SC_QUIC_MIRROR_SSE` | `false` | Duplicate each QUIC send into in-process SSE (needed only for subscribe tests) |
+| `SC_QUIC_STREAM_FLUSH_EVERY` | `16` | Flush persistent uni stream every N writes |
+| `SC_QUIC_COALESCE_EVENTS` | off | Batch N progress events into one framed payload before send |
+
+Profile locally:
+
+```bash
+make profile-quic-good-large
+```
+
 ## Observability
 
 - Capture sent, delivered, dropped, and fallback counters.

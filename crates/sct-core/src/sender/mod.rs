@@ -62,6 +62,25 @@ impl FileSender {
         Self { connection, config }
     }
 
+    /// RS block width for manifest + [`AutopilotRuntime::fec`]. Must stay in sync with `send_adaptive`.
+    fn plan_fec(&self, rtt: Duration, loss_hint: f64) -> FecEncoder {
+        let data_shards = if compute_chunk_size(rtt, loss_hint) <= 128 * 1024 {
+            2
+        } else {
+            4
+        };
+        let (_d, p_base) = compute_fec_ratio(loss_hint, 0.0);
+        let parity_shards = if data_shards == 0 {
+            0
+        } else {
+            (p_base + 1).min(data_shards / 2).max(p_base).max(1)
+        };
+        FecEncoder {
+            data_shards,
+            parity_shards,
+        }
+    }
+
     pub async fn send(&self, path: &Path) -> Result<()> {
         let wall_start = Instant::now();
         let mut file = File::open(path).await?;
@@ -87,17 +106,7 @@ impl FileSender {
             .and_then(|v| v.parse::<f64>().ok())
             .map(|v| v.clamp(0.0, 1.0))
             .unwrap_or(0.01);
-        let data_shards = if compute_chunk_size(rtt, loss_hint) <= 128 * 1024 {
-            2
-        } else {
-            4
-        };
-        let (_d, p_base) = compute_fec_ratio(loss_hint, 0.0);
-        let parity_shards = if data_shards == 0 {
-            0
-        } else {
-            (p_base + 1).min(data_shards / 2).max(p_base).max(1)
-        };
+        let fec = self.plan_fec(rtt, loss_hint);
         let manifest = TransferManifest {
             transfer_id,
             filename,
@@ -108,8 +117,8 @@ impl FileSender {
             file_checksum: checksum,
             compression: self.config.compression.clone(),
             metadata: HashMap::new(),
-            data_shards,
-            parity_shards,
+            data_shards: fec.data_shards,
+            parity_shards: fec.parity_shards,
         };
 
         let (mut ctrl_send, mut ctrl_recv) = self.connection.open_control_stream().await?;
@@ -317,12 +326,12 @@ impl FileSender {
             cpu_load: 0.5,
         };
         runtime.strategy.update(rtt, loss_hint, 0.2, &recv_feedback);
-        let (_d, p_ratio) = compute_fec_ratio(loss_hint, runtime.cc.rtt_variance);
+        // Keep RS dimensions aligned with the manifest the receiver already acknowledged.
         runtime.fec.data_shards = manifest.data_shards.max(1);
         runtime.fec.parity_shards = if parity_cap == 0 {
             0
         } else {
-            p_ratio.min(parity_cap).max(1)
+            manifest.parity_shards
         };
 
         let mut packets = Vec::new();

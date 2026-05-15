@@ -201,15 +201,43 @@ impl QuicStreamTransport {
         writer: &mut W,
         event: &TelemetryEvent,
     ) -> Result<(), TransportError> {
-        let framed = Self::frame_event(event)?;
-        writer
-            .write_all(&framed)
-            .await
-            .map_err(|e| TransportError::Unavailable(e.to_string()))?;
+        Self::write_framed_bytes(writer, &Self::frame_event(event)?).await?;
         writer
             .flush()
             .await
             .map_err(|e| TransportError::Unavailable(e.to_string()))
+    }
+
+    /// Append a framed event without flushing (for batch / persistent uni streams).
+    pub async fn write_framed_bytes<W: AsyncWrite + Unpin>(
+        writer: &mut W,
+        framed: &[u8],
+    ) -> Result<(), TransportError> {
+        writer
+            .write_all(framed)
+            .await
+            .map_err(|e| TransportError::Unavailable(e.to_string()))
+    }
+
+    /// Read one outer frame and return every event it contains (single or batch).
+    pub async fn read_framed_events<R: AsyncRead + Unpin>(
+        reader: &mut R,
+    ) -> Result<Vec<TelemetryEvent>, TransportError> {
+        let mut len_buf = [0_u8; LENGTH_PREFIX_BYTES];
+        reader
+            .read_exact(&mut len_buf)
+            .await
+            .map_err(|e| TransportError::Unavailable(e.to_string()))?;
+        let payload_len = u32::from_be_bytes(len_buf) as usize;
+        let mut payload = vec![0_u8; payload_len];
+        reader
+            .read_exact(&mut payload)
+            .await
+            .map_err(|e| TransportError::Unavailable(e.to_string()))?;
+        let mut framed = Vec::with_capacity(LENGTH_PREFIX_BYTES + payload.len());
+        framed.extend_from_slice(&len_buf);
+        framed.extend_from_slice(&payload);
+        Self::parse_framed_events(&framed)
     }
 
     /// Read one framed event from an async stream.
@@ -432,11 +460,20 @@ impl QuicStreamTransport {
         } else {
             self.server_addr.ip().to_string()
         };
-        let conn = endpoint
+        let connect_timeout_ms = std::env::var("SC_QUIC_CONNECT_TIMEOUT_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(30_000);
+        let connecting = endpoint
             .connect(self.server_addr, &server_name)
-            .map_err(|e| TransportError::QuicError(e.to_string()))?
-            .await
             .map_err(|e| TransportError::QuicError(e.to_string()))?;
+        let conn = tokio::time::timeout(
+            std::time::Duration::from_millis(connect_timeout_ms),
+            connecting,
+        )
+        .await
+        .map_err(|_| TransportError::QuicError("connect timeout".to_string()))?
+        .map_err(|e| TransportError::QuicError(e.to_string()))?;
         drop(endpoint_guard);
 
         let mut shared = self.shared_connection.lock().await;
@@ -490,16 +527,13 @@ impl QuicStreamTransport {
         let use_persistent_uni = std::env::var("SC_QUIC_PERSISTENT_UNI")
             .ok()
             .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
-            .unwrap_or(false);
+            .unwrap_or(true);
         if !use_persistent_uni {
             let mut send_uni = conn
                 .open_uni()
                 .await
                 .map_err(|e| TransportError::QuicError(e.to_string()))?;
-            send_uni
-                .write_all(&framed)
-                .await
-                .map_err(|e| TransportError::Unavailable(e.to_string()))?;
+            Self::write_framed_bytes(&mut send_uni, &framed).await?;
             send_uni
                 .finish()
                 .map_err(|e| TransportError::QuicError(e.to_string()))?;
@@ -526,7 +560,7 @@ impl QuicStreamTransport {
                 }
             }
             if let Some(stream) = stream_guard.as_mut() {
-                match stream.write_all(&framed).await {
+                match Self::write_framed_bytes(stream, &framed).await {
                     Ok(()) => {
                         let writes = self.uni_writes.fetch_add(1, Ordering::Relaxed) + 1;
                         if writes.is_multiple_of(flush_every) {
@@ -570,6 +604,14 @@ fn allow_insecure_quic_override() -> bool {
     }
 }
 
+/// Mirror each successful QUIC send into the in-process SSE fan-out (tests/subscribers).
+fn mirror_sse_enabled() -> bool {
+    std::env::var("SC_QUIC_MIRROR_SSE")
+        .ok()
+        .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false)
+}
+
 #[async_trait]
 impl Transport for QuicStreamTransport {
     async fn send_event(
@@ -603,8 +645,9 @@ impl Transport for QuicStreamTransport {
             match self.send_event_over_quic(&event).await {
                 Ok(()) => {
                     self.events_delivered.fetch_add(1, Ordering::Relaxed);
-                    // Keep local in-process subscribers semantically consistent.
-                    let _ = self.fallback.send_event(run_id, event).await;
+                    if mirror_sse_enabled() {
+                        let _ = self.fallback.send_event(run_id, event).await;
+                    }
                     return Ok(DeliveryStatus::Sent);
                 }
                 Err(err) => {

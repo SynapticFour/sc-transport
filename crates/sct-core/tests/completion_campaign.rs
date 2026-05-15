@@ -134,17 +134,27 @@ fn runtime(enabled: bool) -> AutopilotRuntime {
 
 fn maybe_write_artifact(name: &str, body: &str) {
     if let Ok(dir) = std::env::var("SC_TRANSPORT_ARTIFACT_DIR") {
-        let mut path = PathBuf::from(dir);
-        let _ = fs::create_dir_all(&path);
-        path.push(format!("{name}.json"));
-        let _ = fs::write(path, body);
+        let p = PathBuf::from(&dir);
+        let mut base = if p.is_absolute() {
+            p
+        } else {
+            // Integration tests use cwd = package root (`crates/sct-core`). Resolve relative
+            // dirs from the workspace root so `SC_TRANSPORT_ARTIFACT_DIR=results/cf-check`
+            // writes to `<repo>/results/cf-check/`.
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../..")
+                .join(p)
+        };
+        let _ = fs::create_dir_all(&base);
+        base.push(format!("{name}.json"));
+        let _ = fs::write(base, body);
     }
 }
 
 #[tokio::test]
 async fn completion_campaign_metrics() {
     common::with_timeout("completion_campaign_metrics", 120, async {
-        let enabled = std::env::var("SC_SCT_COMPLETION_FIRST").ok().as_deref() != Some("0");
+        let enabled = true; // completion_first ist immer aktiv (sender.rs: completion_first_enabled: true)
         let mut rt = runtime(enabled);
         rt.run_pipeline(packets(), 2).await;
         let s = CompletionCampaignSummary {
@@ -164,8 +174,9 @@ async fn completion_campaign_metrics() {
                 "cf-check: p99_completion_ms expected < 5ms, got {}",
                 s.p99_completion_ms
             );
-            // Straggler-Zahl = |{ t in completed | t > p95 }| (run_pipeline). Keine feste Obergrenze
-            // im Test: bei realem Jitter ist die Trefferzahl typischerweise deutlich größer als 5.
+            // straggler_count = |{ t | t > p95 }|; bei nahezu identischen Completion-Zeiten liegt
+            // p95 nahe p50, daher typisch ~5% der Stichprobe (hier oft 20/400). Kein hartes Limit:
+            // assert!(s.straggler_count < 5, "cf-check: straggler_count expected < 5, got {}", s.straggler_count);
         }
     })
     .await;

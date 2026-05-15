@@ -5,6 +5,10 @@ edition = "2021"
 license = "Apache-2.0"
 description = "SPARQ core transport library."
 
+[features]
+# Enables test-only wire hooks (e.g. simulated chunk loss). Not for production builds.
+test-hooks = []
+
 [dependencies]
 quinn = "0.11"
 quinn-proto = "0.11"

@@ -9,9 +9,9 @@
 
 ## Development
 
-- Run `cargo fmt --all`.
-- Run `cargo clippy --workspace --all-features -- -D warnings`.
-- Run `cargo test --workspace`.
+- Run `make ci-all` before opening a PR (or `make ci` + `make ci-transport-integration` separately).
+- While iterating: `make test-integration` (integration only) or `make test-unit`.
+- See [README § Continuous integration](README.md#continuous-integration) for the full target matrix and CI job mapping.
 
 ## Documentation-first policy
 

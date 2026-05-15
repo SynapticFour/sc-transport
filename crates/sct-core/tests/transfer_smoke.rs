@@ -283,3 +283,21 @@ fn missing_chunk_list_is_capped_and_sorted() {
         "kleinster fehlender Chunk muss zuerst kommen"
     );
 }
+
+#[test]
+fn fec_recovery_with_one_missing_data_shard() {
+    // 4 Datashards, 2 Parity — simuliere 1 fehlenden Datashard
+    use reed_solomon_erasure::galois_8::ReedSolomon;
+    let rs = ReedSolomon::new(4, 2).unwrap();
+    let chunk = vec![0xABu8; 256];
+    let mut shards: Vec<Vec<u8>> = (0..6).map(|_| chunk.clone()).collect();
+    rs.encode(&mut shards).unwrap();
+    let mut shards: Vec<Option<Vec<u8>>> = shards.into_iter().map(Some).collect();
+    // Simuliere fehlenden Datashard 2
+    shards[2] = None;
+    // Muss mindestens 4 Shards vorhanden haben: 5 von 6 → Recovery möglich
+    let received = shards.iter().filter(|s| s.is_some()).count();
+    assert!(received >= 4);
+    rs.reconstruct_data(&mut shards).expect("reconstruct_data");
+    assert!(shards[2].is_some(), "Datashard 2 muss rekonstruiert sein");
+}

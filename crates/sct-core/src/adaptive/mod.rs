@@ -688,11 +688,12 @@ impl FecEncoder {
         if p == 0 || data.len() < n {
             return data.to_vec();
         }
-        let block = &data[..n];
+        let mut block: Vec<Packet> = data[..n].to_vec();
+        block.sort_by_key(|p| p.seq);
         let fec_group = block[0].fec_group;
         let max_len = block.iter().map(|x| x.payload.len()).max().unwrap_or(0);
         if max_len == 0 {
-            return block.to_vec();
+            return block;
         }
         let Ok(rs) = ReedSolomon::new(n, p) else {
             return data.to_vec();
@@ -742,6 +743,48 @@ impl FecEncoder {
         }
         out
     }
+}
+
+/// Upsert a data packet into the per-`fec_group` encoder stash (dedupe by chunk `seq`).
+fn stash_fec_packet(pending: &mut HashMap<u64, Vec<Packet>>, g: u64, pkt: Packet) {
+    let buf = pending.entry(g).or_default();
+    if let Some(pos) = buf.iter().position(|x| x.seq == pkt.seq) {
+        buf[pos] = pkt;
+    } else {
+        buf.push(pkt);
+    }
+}
+
+/// When all data shard indices for `fec_group` are present in `packets`, remove and RS-encode.
+fn drain_fec_block_from_packets(
+    packets: &mut Vec<Packet>,
+    fec_group: u64,
+    fec: &FecEncoder,
+) -> Option<Vec<Packet>> {
+    let n = fec.data_shards.max(1);
+    let base = fec_group.saturating_mul(n as u64);
+    let mut positions = Vec::with_capacity(n);
+    for idx in base..base.saturating_add(n as u64) {
+        let pos = packets.iter().position(|p| p.seq == idx)?;
+        positions.push(pos);
+    }
+    positions.sort_unstable_by(|a, b| b.cmp(a));
+    let block: Vec<Packet> = positions.into_iter().map(|pos| packets.remove(pos)).collect();
+    Some(fec.encode_block(&block))
+}
+
+#[allow(dead_code)]
+fn drain_fec_block_if_ready(
+    pending: &mut HashMap<u64, Vec<Packet>>,
+    fec_group: u64,
+    fec: &FecEncoder,
+) -> Option<Vec<Packet>> {
+    let buf = pending.get_mut(&fec_group)?;
+    let encoded = drain_fec_block_from_packets(buf, fec_group, fec)?;
+    if buf.is_empty() {
+        pending.remove(&fec_group);
+    }
+    Some(encoded)
 }
 
 pub struct FecDecoder {
@@ -1436,7 +1479,7 @@ impl AutopilotRuntime {
         });
 
         tokio::spawn(async move {
-            let mut block: Vec<Packet> = Vec::new();
+            let mut stash: HashMap<u64, Vec<Packet>> = HashMap::new();
             let fec_for = |g: u64| -> FecEncoder {
                 if fec_cap == 0 {
                     FecEncoder {
@@ -1460,44 +1503,28 @@ impl AutopilotRuntime {
                 }
             };
             while let Some(p) = rx_chunk.recv().await {
-                if !block.is_empty() && p.fec_group != block[0].fec_group {
-                    let flush_fec = fec_for(block[0].fec_group);
-                    let n = flush_fec.data_shards.max(1);
-                    while block.len() >= n {
-                        let taken: Vec<_> = block.drain(..n).collect();
-                        let encoded = flush_fec.encode_block(&taken);
+                let g = p.fec_group;
+                stash_fec_packet(&mut stash, g, p);
+                let fec = fec_for(g);
+                if let Some(buf) = stash.get_mut(&g) {
+                    while let Some(encoded) = drain_fec_block_from_packets(buf, g, &fec) {
                         for pkt in encoded {
                             let _ = tx_encode.send(pkt).await;
                         }
                     }
-                    for q in block.drain(..) {
-                        let _ = tx_encode.send(q).await;
-                    }
-                }
-                block.push(p);
-                let fec_group = block[0].fec_group;
-                let fec = fec_for(fec_group);
-                if block.len() >= fec.data_shards.max(1) {
-                    let encoded = fec.encode_block(&block);
-                    for pkt in encoded {
-                        let _ = tx_encode.send(pkt).await;
-                    }
-                    block.clear();
                 }
             }
-            if !block.is_empty() {
-                let fec_group = block[0].fec_group;
-                let fec = fec_for(fec_group);
-                let n = fec.data_shards.max(1);
-                while block.len() >= n {
-                    let taken: Vec<_> = block.drain(..n).collect();
-                    let encoded = fec.encode_block(&taken);
-                    for pkt in encoded {
+            for g in stash.keys().copied().collect::<Vec<_>>() {
+                let fec = fec_for(g);
+                if let Some(mut buf) = stash.remove(&g) {
+                    while let Some(encoded) = drain_fec_block_from_packets(&mut buf, g, &fec) {
+                        for pkt in encoded {
+                            let _ = tx_encode.send(pkt).await;
+                        }
+                    }
+                    for pkt in buf.drain(..) {
                         let _ = tx_encode.send(pkt).await;
                     }
-                }
-                for q in block.drain(..) {
-                    let _ = tx_encode.send(q).await;
                 }
             }
         });
@@ -1727,6 +1754,118 @@ mod tests {
         assert!(encoded[2].is_parity);
         assert!(encoded[2].payload.len() > 2);
         assert_eq!(encoded[2].parity_index, 0);
+    }
+
+    #[test]
+    fn fec_encode_block_sorts_by_chunk_index() {
+        let enc = FecEncoder {
+            data_shards: 2,
+            parity_shards: 1,
+        };
+        let p0 = Packet {
+            id: PacketId(0),
+            seq: 0,
+            payload: vec![0xAA, 0x11],
+            is_parity: false,
+            meta: PacketMeta {
+                id: 0,
+                priority: 1,
+                deadline: None,
+                size: 2,
+            },
+            fec_group: 0,
+            reconstructable: false,
+            parity_index: 0,
+        };
+        let p1 = Packet {
+            id: PacketId(1),
+            seq: 1,
+            payload: vec![0x55, 0x22],
+            is_parity: false,
+            meta: PacketMeta {
+                id: 1,
+                priority: 1,
+                deadline: None,
+                size: 2,
+            },
+            fec_group: 0,
+            reconstructable: false,
+            parity_index: 0,
+        };
+        let forward = enc.encode_block(&[p0.clone(), p1.clone()]);
+        let reversed = enc.encode_block(&[p1, p0]);
+        assert_eq!(forward.len(), reversed.len());
+        for (a, b) in forward.iter().zip(reversed.iter()) {
+            assert_eq!(a.payload, b.payload);
+            assert_eq!(a.is_parity, b.is_parity);
+        }
+    }
+
+    #[test]
+    fn fec_stash_ignores_duplicate_seq_until_block_complete() {
+        let mut stash: HashMap<u64, Vec<Packet>> = HashMap::new();
+        let fec = FecEncoder {
+            data_shards: 2,
+            parity_shards: 1,
+        };
+        let mk = |seq: u64| Packet {
+            id: PacketId(seq),
+            seq,
+            payload: vec![seq as u8],
+            is_parity: false,
+            meta: PacketMeta {
+                id: seq,
+                priority: 1,
+                deadline: None,
+                size: 1,
+            },
+            fec_group: 0,
+            reconstructable: false,
+            parity_index: 0,
+        };
+        stash_fec_packet(&mut stash, 0, mk(0));
+        stash_fec_packet(&mut stash, 0, mk(0));
+        let buf = stash.get_mut(&0).unwrap();
+        assert_eq!(buf.len(), 1);
+        assert!(drain_fec_block_from_packets(buf, 0, &fec).is_none());
+        stash_fec_packet(&mut stash, 0, mk(1));
+        let buf = stash.get_mut(&0).unwrap();
+        let encoded = drain_fec_block_from_packets(buf, 0, &fec).expect("encoded");
+        assert_eq!(encoded.len(), 3);
+        assert!(encoded[2].is_parity);
+    }
+
+    #[test]
+    fn fec_stash_waits_for_all_shard_indices() {
+        let mut stash: HashMap<u64, Vec<Packet>> = HashMap::new();
+        let fec = FecEncoder {
+            data_shards: 2,
+            parity_shards: 1,
+        };
+        let mk = |seq: u64| Packet {
+            id: PacketId(seq),
+            seq,
+            payload: vec![seq as u8],
+            is_parity: false,
+            meta: PacketMeta {
+                id: seq,
+                priority: 1,
+                deadline: None,
+                size: 1,
+            },
+            fec_group: 0,
+            reconstructable: false,
+            parity_index: 0,
+        };
+        stash_fec_packet(&mut stash, 0, mk(1));
+        let buf = stash.get_mut(&0).unwrap();
+        assert!(drain_fec_block_from_packets(buf, 0, &fec).is_none());
+        stash_fec_packet(&mut stash, 0, mk(0));
+        let buf = stash.get_mut(&0).unwrap();
+        let encoded = drain_fec_block_from_packets(buf, 0, &fec).expect("encoded");
+        assert_eq!(encoded.len(), 3);
+        assert!(encoded[2].is_parity);
+        assert!(buf.is_empty());
     }
 
     #[test]

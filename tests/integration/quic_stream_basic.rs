@@ -7,6 +7,7 @@ mod artifacts;
 
 #[tokio::test]
 async fn quic_stream_basic_send_subscribe() {
+    std::env::set_var("SC_QUIC_MIRROR_SSE", "1");
     let transport = QuicStreamTransport::new();
     let run_id = "quic-basic";
     let mut stream = transport.subscribe(run_id).await.expect("subscribe");
