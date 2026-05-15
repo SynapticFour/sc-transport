@@ -62,7 +62,9 @@ format = "text"
             data = data_dir.display()
         );
         let cfg_path = tmp.path().join("sct.toml");
-        tokio::fs::write(&cfg_path, cfg).await.expect("write config");
+        tokio::fs::write(&cfg_path, cfg)
+            .await
+            .expect("write config");
 
         let src = tmp.path().join("daemon-payload.bin");
         let payload: Vec<u8> = (0..48 * 1024).map(|i| (i % 200) as u8).collect();
@@ -92,9 +94,7 @@ format = "text"
             .expect("submit");
         assert_eq!(submit.status(), reqwest::StatusCode::ACCEPTED);
         let submit_json: serde_json::Value = submit.json().await.expect("submit json");
-        let transfer_id = submit_json["transfer_id"]
-            .as_str()
-            .expect("transfer_id");
+        let transfer_id = submit_json["transfer_id"].as_str().expect("transfer_id");
 
         let endpoint = format!("sct://127.0.0.1:{quic_port}");
         let mut send_cmd = Command::new(sct_bin());
@@ -166,7 +166,9 @@ async fn daemon_push_via_rest_and_cli_recv() {
 
         let data_dir = tmp.path();
         let recv_out = data_dir.join("recv-out");
-        tokio::fs::create_dir_all(&recv_out).await.expect("mkdir recv-out");
+        tokio::fs::create_dir_all(&recv_out)
+            .await
+            .expect("mkdir recv-out");
 
         let cfg = format!(
             r#"[server]
@@ -240,9 +242,7 @@ format = "text"
             .expect("submit");
         assert_eq!(submit.status(), reqwest::StatusCode::ACCEPTED);
         let submit_json: serde_json::Value = submit.json().await.expect("submit json");
-        let transfer_id = submit_json["transfer_id"]
-            .as_str()
-            .expect("transfer_id");
+        let transfer_id = submit_json["transfer_id"].as_str().expect("transfer_id");
 
         let mut completed = false;
         for _ in 0..120 {

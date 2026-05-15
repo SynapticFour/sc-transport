@@ -103,7 +103,10 @@ async fn e2e_loopback_transfer_5pct_loss_multi_chunk() {
 async fn e2e_loopback_fec_recovery() {
     common::with_timeout("e2e_loopback_fec_recovery", 120, async {
         std::env::set_var("SC_SCT_ADAPTIVE_LOSS_HINT", LOSS_HINT_FEC_RECOVERY);
-        std::env::set_var(sct_core::receiver::TEST_SIMULATE_LOST_CHUNK_INDICES_ENV, "1");
+        std::env::set_var(
+            sct_core::receiver::TEST_SIMULATE_LOST_CHUNK_INDICES_ENV,
+            "1",
+        );
         let _env = EnvGuard {
             vars: &[
                 "SC_SCT_ADAPTIVE_LOSS_HINT",

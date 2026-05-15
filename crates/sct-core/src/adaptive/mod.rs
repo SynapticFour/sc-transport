@@ -769,7 +769,10 @@ fn drain_fec_block_from_packets(
         positions.push(pos);
     }
     positions.sort_unstable_by(|a, b| b.cmp(a));
-    let block: Vec<Packet> = positions.into_iter().map(|pos| packets.remove(pos)).collect();
+    let block: Vec<Packet> = positions
+        .into_iter()
+        .map(|pos| packets.remove(pos))
+        .collect();
     Some(fec.encode_block(&block))
 }
 

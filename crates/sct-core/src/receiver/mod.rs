@@ -50,11 +50,7 @@ pub const TEST_SIMULATE_LOST_CHUNK_INDICES_ENV: &str = "SC_SCT_TEST_SIMULATE_LOS
 fn simulated_lost_chunks_from_env() -> HashSet<u64> {
     std::env::var(TEST_SIMULATE_LOST_CHUNK_INDICES_ENV)
         .ok()
-        .map(|s| {
-            s.split(',')
-                .filter_map(|p| p.trim().parse().ok())
-                .collect()
-        })
+        .map(|s| s.split(',').filter_map(|p| p.trim().parse().ok()).collect())
         .unwrap_or_default()
 }
 
@@ -555,14 +551,7 @@ mod fec_recovery_plan_tests {
 
     #[test]
     fn recovery_not_ready_without_enough_total_shards() {
-        let group = vec![
-            Some(vec![1]),
-            None,
-            None,
-            None,
-            Some(vec![2]),
-            None,
-        ];
+        let group = vec![Some(vec![1]), None, None, None, Some(vec![2]), None];
         let manifest = TransferManifest {
             transfer_id: [0; 16],
             filename: "t".into(),

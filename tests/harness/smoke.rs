@@ -1,3 +1,7 @@
+//! Shared subprocess helpers for CLI/daemon integration tests.
+//! Each `[[test]]` binary uses only a subset; allow dead_code under `-D warnings`.
+#![allow(dead_code)]
+
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -34,9 +38,7 @@ pub async fn with_timeout<T>(
     timeout(Duration::from_secs(secs), fut)
         .await
         .unwrap_or_else(|_| {
-            panic!(
-                "{label}: exceeded {secs}s. Run with --test-threads=1 if ports contend."
-            )
+            panic!("{label}: exceeded {secs}s. Run with --test-threads=1 if ports contend.")
         })
 }
 
@@ -71,7 +73,10 @@ pub async fn wait_for_log_line(child: &mut Child, needle: &str, secs: u64) {
     })
     .await
     .unwrap_or(false);
-    assert!(found, "expected log line containing `{needle}` within {secs}s");
+    assert!(
+        found,
+        "expected log line containing `{needle}` within {secs}s"
+    );
 }
 
 pub async fn file_bytes(path: &Path) -> Vec<u8> {

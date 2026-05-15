@@ -24,7 +24,9 @@ async fn cli_send_recv_loopback_smoke() {
         tokio::fs::write(&src, &payload).await.expect("write src");
 
         let out_dir = tmp.path().join("recv");
-        tokio::fs::create_dir_all(&out_dir).await.expect("mkdir recv");
+        tokio::fs::create_dir_all(&out_dir)
+            .await
+            .expect("mkdir recv");
 
         let sct = sct_bin();
         let endpoint = format!("sct://127.0.0.1:{port}");
@@ -41,9 +43,7 @@ async fn cli_send_recv_loopback_smoke() {
             ])
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::inherit());
-        let mut recv_child = recv_cmd
-            .spawn()
-            .expect("spawn recv");
+        let mut recv_child = recv_cmd.spawn().expect("spawn recv");
         tokio::time::sleep(std::time::Duration::from_millis(400)).await;
 
         let mut send_cmd = Command::new(&sct);
@@ -64,4 +64,3 @@ async fn cli_send_recv_loopback_smoke() {
     })
     .await;
 }
-
