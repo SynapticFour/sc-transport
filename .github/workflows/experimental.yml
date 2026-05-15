@@ -59,8 +59,7 @@ jobs:
           if [ -f artifacts/regressions.txt ] && [ "$(cat artifacts/regressions.txt)" = "true" ]; then
             gh issue create \
               --title "Experimental datagram benchmark regression detected" \
-              --body "The experimental packet-loss benchmark changed significantly. See workflow artifacts for details." \
-              --label "experimental"
+              --body "The experimental packet-loss benchmark changed significantly. See workflow artifacts for details."
           else
             echo "No regression issue needed."
           fi
