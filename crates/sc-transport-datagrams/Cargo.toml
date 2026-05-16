@@ -2,7 +2,8 @@
 name = "sc-transport-datagrams"
 version = "0.1.0"
 edition = "2021"
-license = "Apache-2.0"
+license = "BUSL-1.1"
+license-file = "../../LICENSE"
 description = "Experimental QUIC datagram transport for Synaptic Core telemetry"
 
 [features]

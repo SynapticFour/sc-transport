@@ -144,7 +144,13 @@ confirm it performs as intended in real scientific deployments.**
 
 ## License
 
-Apache-2.0.
+sc-transport is released under the
+[Business Source License 1.1](LICENSE).
+
+**Free for:** research, evaluation, academic use, open-source projects.
+**Commercial use:** requires a [commercial license](COMMERCIAL.md).
+
+On 2029-01-01, sc-transport will convert to Apache 2.0.
 
 ## Support
 

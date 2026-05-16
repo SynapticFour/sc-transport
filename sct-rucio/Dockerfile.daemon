@@ -1,0 +1,13 @@
+FROM rust:1.78-slim AS builder
+WORKDIR /build
+COPY . .
+RUN cargo build --release -p sct-daemon -p sct-cli
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /build/target/release/sct-daemon /usr/local/bin/sct-daemon
+COPY --from=builder /build/target/release/sct /usr/local/bin/sct
+COPY sct-rucio/docker/sct-daemon.toml /etc/sct/sct.toml
+WORKDIR /etc/sct
+EXPOSE 7273 9410
+CMD ["sct-daemon"]

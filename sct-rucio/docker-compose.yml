@@ -1,0 +1,53 @@
+version: "3.9"
+services:
+  # sct-daemon: nimmt Transfer-Jobs über REST API an
+  sct-daemon:
+    build:
+      context: ..
+      dockerfile: sct-rucio/Dockerfile.daemon
+    ports:
+      - "7273:7273"   # REST API
+      - "9410:9410"   # sct wire protocol
+    volumes:
+      - sct-data:/data
+      - sct-transfer:/transfer
+    environment:
+      SCT_LISTEN: "0.0.0.0:9410"
+      SCT_API_PORT: "7273"
+      SCT_DATA_DIR: "/data"
+
+  # sct-receiver: empfängt Dateien (simuliert Ziel-RSE)
+  sct-receiver:
+    build:
+      context: ..
+      dockerfile: sct-rucio/Dockerfile.daemon
+    ports:
+      - "9411:9410"
+    volumes:
+      - sct-recv:/recv
+      - sct-transfer:/transfer
+    environment:
+      SCT_LISTEN: "0.0.0.0:9410"
+      SCT_DATA_DIR: "/recv"
+      SCT_MODE: "receive"
+
+  # Plugin-Test Runner
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    depends_on: [sct-daemon, sct-receiver]
+    volumes:
+      - sct-transfer:/transfer
+    environment:
+      SCT_DAEMON_HOST: sct-daemon
+      SCT_DAEMON_PORT: "7273"
+      SCT_RECEIVER_HOST: sct-receiver
+      SCT_RECEIVER_PORT: "9410"
+      SCT_TRANSFER_DIR: /transfer
+    command: ["pytest", "tests/", "-v", "--tb=short"]
+
+volumes:
+  sct-data:
+  sct-recv:
+  sct-transfer:

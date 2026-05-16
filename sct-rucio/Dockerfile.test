@@ -1,0 +1,6 @@
+FROM python:3.11-slim
+WORKDIR /plugin
+COPY requirements-dev.txt .
+RUN pip install -r requirements-dev.txt
+COPY . .
+RUN pip install -e .

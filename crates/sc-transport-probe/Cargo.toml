@@ -2,7 +2,8 @@
 name = "sc-transport-probe"
 version = "0.1.0"
 edition = "2021"
-license = "Apache-2.0"
+license = "BUSL-1.1"
+license-file = "../../LICENSE"
 description = "QUIC path probe and network profiling for sc-transport."
 
 [dependencies]

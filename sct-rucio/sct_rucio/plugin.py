@@ -1,3 +1,5 @@
+import os
+
 try:
     import requests
 except Exception:  # pragma: no cover
@@ -74,3 +76,72 @@ class SctTransferTool(TransferTool):
             timeout=30,
         ).raise_for_status()
         return True
+
+
+class SctRSEProtocol:
+    """
+    Direktes RSE-Protokoll für Rucio (Alternative zum TransferTool).
+    Nutzt sct-cli direkt via subprocess statt REST API.
+    Empfohlen für einfache Deployments ohne sct-daemon.
+    """
+
+    def __init__(self, protocol_attr, rse_settings, auth_token=None):
+        self.hostname = protocol_attr["hostname"]
+        self.port = protocol_attr.get("port", 9410)
+        self.prefix = protocol_attr.get("prefix", "/")
+        self._sct_bin = os.environ.get("SCT_BIN", "sct")
+
+    def get(self, path, dest, transfer_timeout=None):
+        """Download: sct receive --from host:port --file path --out dest"""
+        import subprocess
+
+        cmd = [
+            self._sct_bin,
+            "receive",
+            "--from",
+            f"{self.hostname}:{self.port}",
+            "--file",
+            path.lstrip("/"),
+            "--out",
+            dest,
+            "--resume",
+        ]
+        r = subprocess.run(cmd, capture_output=True, timeout=transfer_timeout or 3600)
+        if r.returncode != 0:
+            raise RuntimeError(
+                f"sct receive failed (rc={r.returncode}): "
+                f"{r.stderr.decode(errors='replace')}"
+            )
+
+    def put(self, source, target, source_dir=None, transfer_timeout=None):
+        """Upload: sct send --to host:port --file source"""
+        import subprocess
+
+        cmd = [
+            self._sct_bin,
+            "send",
+            "--to",
+            f"{self.hostname}:{self.port}",
+            "--file",
+            source,
+            "--compression",
+            "zstd",
+        ]
+        r = subprocess.run(cmd, capture_output=True, timeout=transfer_timeout or 3600)
+        if r.returncode != 0:
+            raise RuntimeError(
+                f"sct send failed (rc={r.returncode}): "
+                f"{r.stderr.decode(errors='replace')}"
+            )
+
+    def exists(self, path):
+        return False  # Delegation an Rucio Replica-Catalog
+
+    def stat(self, path):
+        raise NotImplementedError
+
+    def rename(self, path, new_path):
+        raise NotImplementedError
+
+    def delete(self, path):
+        raise NotImplementedError
