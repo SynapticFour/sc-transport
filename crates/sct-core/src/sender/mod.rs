@@ -296,6 +296,7 @@ impl FileSender {
         runtime
             .cc
             .on_network_sample(bw_estimate_bps, rtt, prev_rtt, loss_hint);
+        sync_stabilizer_rtt_variance(&mut runtime);
         let recv_feedback = ReceiverFeedback {
             decode_delay: Duration::from_millis(if rtt > Duration::from_millis(80) {
                 45
@@ -515,6 +516,10 @@ async fn write_packet_payload(connection: &SctConnection, payload: Vec<u8>) -> R
     Ok(())
 }
 
+fn sync_stabilizer_rtt_variance(runtime: &mut AutopilotRuntime) {
+    runtime.stabilizer.rtt_variance_trend = runtime.cc.rtt_variance_trend;
+}
+
 async fn apply_feedback_if_present(
     runtime: &mut AutopilotRuntime,
     state: &Arc<Mutex<Option<ReceiverFeedbackFrame>>>,
@@ -568,4 +573,5 @@ async fn apply_feedback_if_present(
             0.15
         };
     }
+    sync_stabilizer_rtt_variance(runtime);
 }

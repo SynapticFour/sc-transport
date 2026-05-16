@@ -285,6 +285,8 @@ pub struct PredictiveStabilizer {
     last_sample_loss: f64,
     last_wall: Instant,
     pub slow_loop_ranking_bias: f64,
+    /// Smoothed RTT variance from `HybridCongestionController` (set by sender each tick).
+    pub rtt_variance_trend: f64,
 }
 
 impl Default for PredictiveStabilizer {
@@ -304,6 +306,7 @@ impl Default for PredictiveStabilizer {
             last_sample_loss: 0.0,
             last_wall: Instant::now(),
             slow_loop_ranking_bias: 1.0,
+            rtt_variance_trend: 0.0,
         }
     }
 }
@@ -355,7 +358,11 @@ impl PredictiveStabilizer {
             .tick(primary_raw_utility, &forecast, sig.queue_pressure, 0.72);
 
         let osc = self.oscillation.oscillation_score();
-        let queue_vol = self.oscillation.queue_variance.sqrt();
+        let min_rtt_s = cc.min_rtt.as_secs_f64().max(0.000_5);
+        let rtt_jitter = (self.rtt_variance_trend / min_rtt_s.powi(2))
+            .sqrt()
+            .clamp(0.0, 2.0);
+        let queue_vol = self.oscillation.queue_variance.sqrt() + rtt_jitter * 0.25;
         let rtt_accel = cc.rtt_gradient.max(0.0);
         let budget = StabilityBudget::from_forecast_volatility(&forecast, queue_vol, rtt_accel);
 

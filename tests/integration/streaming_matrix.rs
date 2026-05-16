@@ -275,57 +275,6 @@ fn events_for_transport(transport_name: &str, requested: u64) -> u64 {
     }
 }
 
-async fn run_quic_stream_batch_case(
-    run: u32,
-    quic: &QuicStreamTransport,
-    quality: QualityProfile,
-    payload: PayloadProfile,
-) -> CaseResult {
-    let transport_name = "quic-stream";
-    let run_id = format!("matrix-{transport_name}-{}-{}", quality.name, payload.name);
-    let attempted = events_for_transport(transport_name, payload.events);
-    let closed_loop = closed_loop_enabled();
-    let started = Instant::now();
-    let events: Vec<TelemetryEvent> = (0..attempted)
-        .map(|i| {
-            let loss_signal = false;
-            make_event(&run_id, i, payload.bytes, quality, loss_signal)
-        })
-        .collect();
-    let batch = quic
-        .send_events_batch(&run_id, events)
-        .await
-        .expect("quic batch send");
-    let elapsed_s = started.elapsed().as_secs_f64().max(0.000_001);
-    let sent = batch.sent_events as u64;
-    let dropped = attempted.saturating_sub(sent);
-    let (mode_switch_count, effective_parity_rate, feedback_lag_ms) =
-        estimate_adaptive_metrics(closed_loop, quality, attempted, dropped, 0);
-    let (duplication_rate, deadline_miss_rate, tail_ratio_p99_p50) =
-        estimate_aggressive_tail_metrics(closed_loop, quality, attempted, dropped, 0);
-    CaseResult {
-        run,
-        transport: transport_name.to_string(),
-        quality: quality.name.to_string(),
-        payload: payload.name.to_string(),
-        payload_bytes: payload.bytes,
-        events_attempted: attempted,
-        sent,
-        delivered: 0,
-        dropped,
-        fallback: 0,
-        elapsed_s,
-        events_per_s: attempted as f64 / elapsed_s,
-        closed_loop,
-        mode_switch_count,
-        effective_parity_rate,
-        feedback_lag_ms,
-        duplication_rate,
-        deadline_miss_rate,
-        tail_ratio_p99_p50,
-    }
-}
-
 async fn run_case<T: Transport>(
     run: u32,
     transport_name: &str,
@@ -594,11 +543,7 @@ async fn streaming_transport_matrix_without_files() {
         for &q in &qualities {
             for &p in &payloads {
                 results.push(run_case(run, "sse", &sse, q, p).await);
-                if p.name == "large" {
-                    results.push(run_quic_stream_batch_case(run, &quic, q, p).await);
-                } else {
-                    results.push(run_case(run, "quic-stream", &quic, q, p).await);
-                }
+                results.push(run_case(run, "quic-stream", &quic, q, p).await);
                 results.push(run_case(run, "quic-datagram", &datagram, q, p).await);
             }
         }

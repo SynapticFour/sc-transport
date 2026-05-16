@@ -542,14 +542,20 @@ impl QuicStreamTransport {
         // Für kleine Frames den persistenten shared_uni_stream nutzen.
         const LARGE_FRAME_THRESHOLD: usize = 16 * 1024; // 16 KB
         if framed.len() > LARGE_FRAME_THRESHOLD || !use_persistent_uni {
-            let mut send_uni = conn
-                .open_uni()
-                .await
-                .map_err(|e| TransportError::QuicError(e.to_string()))?;
-            Self::write_framed_bytes(&mut send_uni, &framed).await?;
-            send_uni
-                .finish()
-                .map_err(|e| TransportError::QuicError(e.to_string()))?;
+            // Fire-and-forget: do not call finish() — it blocks on local FIN until ACK and
+            // serializes the next open_uni(). Spawn so send_event returns immediately; drop
+            // the stream so QUIC closes the send side (receiver reads until EOF).
+            let conn = conn.clone();
+            tokio::spawn(async move {
+                if let Ok(mut send_uni) = conn.open_uni().await {
+                    if Self::write_framed_bytes(&mut send_uni, &framed)
+                        .await
+                        .is_ok()
+                    {
+                        drop(send_uni);
+                    }
+                }
+            });
             return Ok(());
         }
         let flush_every = std::env::var("SC_QUIC_STREAM_FLUSH_EVERY")

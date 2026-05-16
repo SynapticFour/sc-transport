@@ -3,8 +3,6 @@ use std::time::Duration;
 #[cfg(feature = "quic-streams")]
 use std::time::Instant;
 #[cfg(feature = "quic-streams")]
-use tokio::io::AsyncWriteExt;
-#[cfg(feature = "quic-streams")]
 use tokio::sync::Semaphore;
 #[cfg(feature = "quic-streams")]
 use tokio::task::JoinSet;
@@ -44,10 +42,22 @@ impl BatchSender {
     ) -> BatchSendResult {
         let total = events.len();
         let started = Instant::now();
+        const LARGE_FRAME_THRESHOLD: usize = 16 * 1024;
+        let chunk_size = events
+            .first()
+            .and_then(|e| QuicStreamTransport::frame_event(e).ok())
+            .map(|b| {
+                if b.len() > LARGE_FRAME_THRESHOLD {
+                    1
+                } else {
+                    self.chunk_size.max(1)
+                }
+            })
+            .unwrap_or_else(|| self.chunk_size.max(1));
         let sem = std::sync::Arc::new(Semaphore::new(self.max_parallel_streams.max(1)));
         let mut set = JoinSet::new();
 
-        for chunk in events.chunks(self.chunk_size.max(1)) {
+        for chunk in events.chunks(chunk_size) {
             let permit = sem.clone().acquire_owned().await;
             let Ok(permit) = permit else { continue };
             let conn = connection.clone();
@@ -78,8 +88,8 @@ impl BatchSender {
                     }
                     Err(_) => failed = true,
                 }
-                let _ = stream.flush().await;
-                let _ = stream.finish();
+                // Fire-and-forget: drop send side without finish() FIN/ACK wait (telemetry).
+                drop(stream);
                 if failed {
                     (sent, 1_usize)
                 } else {
