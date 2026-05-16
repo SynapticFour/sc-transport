@@ -538,7 +538,10 @@ impl QuicStreamTransport {
             .ok()
             .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
             .unwrap_or(true);
-        if !use_persistent_uni {
+        // Für große Frames eigenen Stream öffnen — kein Mutex-Blocking.
+        // Für kleine Frames den persistenten shared_uni_stream nutzen.
+        const LARGE_FRAME_THRESHOLD: usize = 16 * 1024; // 16 KB
+        if framed.len() > LARGE_FRAME_THRESHOLD || !use_persistent_uni {
             let mut send_uni = conn
                 .open_uni()
                 .await
@@ -623,6 +626,8 @@ fn mirror_sse_enabled() -> bool {
         .unwrap_or(false)
 }
 
+/// QUIC **stream** transport (`supports_unreliable` is false). Unreliable QUIC **datagram** sends
+/// live in `sc_transport_datagrams::QuicDatagramTransport` (`send_event_over_datagram` there).
 #[async_trait]
 impl Transport for QuicStreamTransport {
     async fn send_event(

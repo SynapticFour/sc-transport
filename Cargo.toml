@@ -89,6 +89,11 @@ path = "tests/integration/datagram_delivery_no_loss.rs"
 required-features = ["transport-datagrams"]
 
 [[test]]
+name = "quic_datagram_basic"
+path = "tests/integration/quic_datagram_basic.rs"
+required-features = ["transport-datagrams"]
+
+[[test]]
 name = "datagram_delivery_5pct_loss"
 path = "tests/integration/datagram_delivery_5pct_loss.rs"
 required-features = ["transport-datagrams"]

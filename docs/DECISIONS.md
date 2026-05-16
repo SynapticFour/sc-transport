@@ -2,6 +2,13 @@
 
 Project-wide ADRs live in [`DECISIONS.md`](../DECISIONS.md) at the repo root.
 
+### 2026-05-16 - QUIC persistent uni: Mutex → Write-Task (geplant, separater PR)
+
+- **Context:** `QuicStreamTransport` hält den persistenten Client-Uni-Stream unter `shared_uni_stream: Mutex<Option<SendStream>>`. Kleine Events serialisieren zwar schnell, aber jeder Send nimmt den Mutex; große Events sind bereits per `open_uni()` entkoppelt (Schwellwert), dennoch bleibt der Mutex die zentrale Engstelle und Reconnect-/Fehlerpfade sind im `send_event`-Kontext verteilt.
+- **Decision (langfristig, kein sofortiger Fix):** Ersetzen durch ein **Write-Task-Pattern**: beim Verbindungsaufbau `mpsc::channel` (z. B. Kapazität **256** Frames), ein `tokio::spawn`-Task besitzt den Uni-Stream, empfängt fertig gerahmte `Vec<u8>` / `Bytes`, schreibt sequentiell mit `write_framed_bytes`, bricht bei Fehler ab und kapselt **Reconnect an einer Stelle**. Send-Pfad für kleine Events: `write_tx.send(framed).await` statt Mutex-Guard; Backpressure über Kanal-Länge.
+- **Consequences:** Kein Mutex auf dem Hot Path; begrenzte Queue = sichtbare Backpressure statt implizitem Blocking; klarere Ownership des Streams; Implementierung muss Shutdown (`Drop` / explizites Close), Flush-Intervall, und Koexistenz mit `send_events_batch` (bestehendes `finish_persistent_uni_stream`) sauber definieren.
+- **Tracking:** Umsetzung als **eigener PR** nach Abstimmung; bis dahin bleibt der Mutex-Pfad + Large-Frame-`open_uni()`-Bypass bestehen (`crates/sc-transport-quic`).
+
 ### 2026-05 Speculative Duplication aktiviert
 
 **Entscheidung:** `duplicate_budget=4` mit Receiver-Dedup per Chunk-Index (kein Proto-Upgrade nötig).

@@ -150,6 +150,16 @@ impl QuicDatagramTransport {
         loss_rate > self.effective_fallback_threshold()
     }
 
+    /// True when `RUST_LOG` suggests debug-style logging (for optional `eprintln!` diagnostics).
+    fn rust_log_suggests_verbose() -> bool {
+        std::env::var("RUST_LOG")
+            .map(|v| {
+                let v = v.to_ascii_lowercase();
+                v.contains("debug") || v.contains("trace")
+            })
+            .unwrap_or(false)
+    }
+
     fn effective_fallback_threshold(&self) -> f64 {
         // Be slightly more tolerant by default to avoid flapping under noisy paths.
         let bonus = Self::env_f64("SC_DGRAM_THRESHOLD_BONUS").unwrap_or(0.05);
@@ -267,6 +277,31 @@ impl QuicDatagramTransport {
                 Ok::<quinn::Connection, TransportError>(conn)
             })
             .await
+    }
+
+    /// Send one serialized telemetry payload as a single QUIC datagram.
+    ///
+    /// Returns [`TransportError::FallbackRequired`] for routing policy (oversized frame, peer
+    /// without datagram extension, or payload larger than the peer's datagram cap) — not a hard
+    /// failure; callers should steer to SSE without incrementing `fallback_count`.
+    #[cfg(feature = "quic-datagrams")]
+    async fn send_event_over_datagram(&self, payload: &[u8]) -> Result<(), TransportError> {
+        const DGRAM_SAFE_MTU: usize = 1200;
+        if payload.len() > DGRAM_SAFE_MTU {
+            return Err(TransportError::FallbackRequired);
+        }
+        let conn = self.ensure_connection().await?;
+        if conn.max_datagram_size().is_none() {
+            return Err(TransportError::FallbackRequired);
+        }
+        let peer_cap = conn.max_datagram_size().unwrap_or(0);
+        if payload.len() > peer_cap {
+            return Err(TransportError::FallbackRequired);
+        }
+        match conn.send_datagram(Bytes::copy_from_slice(payload)) {
+            Ok(()) => Ok(()),
+            Err(e) => Err(TransportError::QuicError(e.to_string())),
+        }
     }
 
     #[cfg(feature = "quic-datagrams")]
@@ -422,25 +457,26 @@ impl Transport for QuicDatagramTransport {
                 });
             }
         };
-        let delivered = {
-            #[cfg(feature = "quic-datagrams")]
-            {
-                let conn = match self.ensure_connection().await {
-                    Ok(c) => c,
-                    Err(_) => {
-                        self.record_loss_sample(false).await;
-                        self.dropped.fetch_add(1, Ordering::Relaxed);
-                        let _ = self.fallback.send_event(run_id, event).await;
-                        if self.should_trigger_fallback_by_loss().await {
-                            self.fallback_count.fetch_add(1, Ordering::Relaxed);
-                            return Ok(DeliveryStatus::FellBack {
-                                reason: "loss_threshold_exceeded".to_string(),
-                            });
-                        }
-                        return Ok(DeliveryStatus::Dropped);
+
+        #[cfg(feature = "quic-datagrams")]
+        {
+            match self.send_event_over_datagram(&bytes).await {
+                Ok(()) => {
+                    self.record_loss_sample(true).await;
+                    let _ = self.fallback.send_event(run_id, event).await;
+                    return Ok(DeliveryStatus::Sent);
+                }
+                Err(TransportError::FallbackRequired) => {
+                    // Policy routing (MTU / peer caps / extension): SSE, not a transport failure.
+                    let _ = self.fallback.send_event(run_id, event).await;
+                    return Ok(DeliveryStatus::FellBack {
+                        reason: "datagram_policy_route_to_sse".to_string(),
+                    });
+                }
+                Err(ref e) => {
+                    if Self::rust_log_suggests_verbose() {
+                        eprintln!("datagram error: {:?}", e);
                     }
-                };
-                if conn.send_datagram(Bytes::from(bytes)).is_err() {
                     self.record_loss_sample(false).await;
                     self.dropped.fetch_add(1, Ordering::Relaxed);
                     let _ = self.fallback.send_event(run_id, event).await;
@@ -452,30 +488,22 @@ impl Transport for QuicDatagramTransport {
                     }
                     return Ok(DeliveryStatus::Dropped);
                 }
-                true
             }
-            #[cfg(not(feature = "quic-datagrams"))]
-            {
-                let _ = bytes;
-                false
-            }
-        };
-        if delivered {
-            self.record_loss_sample(true).await;
-            let _ = self.fallback.send_event(run_id, event).await;
-            Ok(DeliveryStatus::Sent)
-        } else {
+        }
+
+        #[cfg(not(feature = "quic-datagrams"))]
+        {
+            let _ = bytes;
             self.record_loss_sample(false).await;
             self.dropped.fetch_add(1, Ordering::Relaxed);
             let _ = self.fallback.send_event(run_id, event).await;
             if self.should_trigger_fallback_by_loss().await {
                 self.fallback_count.fetch_add(1, Ordering::Relaxed);
-                Ok(DeliveryStatus::FellBack {
+                return Ok(DeliveryStatus::FellBack {
                     reason: "loss_threshold_exceeded".to_string(),
-                })
-            } else {
-                Ok(DeliveryStatus::Dropped)
+                });
             }
+            return Ok(DeliveryStatus::Dropped);
         }
     }
 
