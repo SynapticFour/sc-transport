@@ -499,7 +499,8 @@ async fn spawn_datagram_sink_server() -> SocketAddr {
     let mut server_config =
         ServerConfig::with_single_cert(vec![cert_der], key_der.into()).expect("server cfg");
     if let Some(transport) = std::sync::Arc::get_mut(&mut server_config.transport) {
-        transport.datagram_receive_buffer_size(Some(64 * 1024));
+        transport.datagram_receive_buffer_size(Some(1 << 20));
+        transport.datagram_send_buffer_size(1 << 20);
     }
     let endpoint = Endpoint::server(server_config, SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
         .expect("server");

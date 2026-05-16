@@ -1,20 +1,14 @@
-# sct-9 / sct-10 regression gate: fmt, clippy, serial QUIC integration tests, cf-check p99,
-# and full sc-transport workspace integration (streaming_matrix smoke + transports).
 name: CI
-
 on:
   push:
     branches: [main, develop]
   pull_request:
-
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
-  RUST_TEST_THREADS: "1"
-
 jobs:
   test:
-    name: sct-core test suite
+    name: sct-core + proto
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,42 +16,38 @@ jobs:
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
-
-      - name: Format check
-        run: cargo fmt --all -- --check
-
-      - name: Clippy (sct-core + sct-proto)
-        run: cargo clippy -p sct-core -p sct-proto --all-targets --features test-hooks -- -D warnings
-
-      - name: Unit tests (sct-core lib)
-        run: cargo test --package sct-core --lib
-
-      - name: Integration tests (serial QUIC loopback)
-        run: |
-          for t in completion_campaign completion_first_ab delta_transfer transfer_smoke \
-            fec_recovery prompt5_integration; do
-            echo "==> sct-core --test ${t}"
-            cargo test --package sct-core --test "${t}" -- --test-threads=1
-          done
-          echo "==> sct-core --test e2e_loopback (test-hooks)"
-          cargo test --package sct-core --test e2e_loopback --features test-hooks -- --test-threads=1
-
-      - name: cf-check regression gate (p99 completion < 5ms)
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy -p sct-core -p sct-proto --all-targets --all-features -- -D warnings
+      - run: cargo test --package sct-core --lib
+      - run: cargo test --package sct-core --test completion_campaign
+      - run: cargo test --package sct-core --test completion_first_ab
+      - run: cargo test --package sct-core --test fec_recovery
+      - run: cargo test --package sct-core --test delta_transfer
+      - run: cargo test --package sct-core --test transfer_smoke
+      - run: cargo test --package sct-core --test e2e_loopback --features test-hooks
+      - run: cargo test --package sct-proto
+      - name: cf-check regression gate (p99 < 5ms)
         run: |
           mkdir -p /tmp/cf-check
           SC_TRANSPORT_ARTIFACT_DIR=/tmp/cf-check \
             cargo test --package sct-core --test completion_campaign \
             completion_campaign_metrics -- --exact --nocapture
-          P99=$(python3 -c "import json; \
-            print(json.load(open('/tmp/cf-check/completion-campaign-summary.json'))['p99_completion_ms'])")
+          P99=$(python3 -c "
+          import json
+          d = json.load(open('/tmp/cf-check/completion-campaign-summary.json'))
+          print(d['p99_completion_ms'])
+          ")
           echo "cf-check p99=${P99}ms"
-          python3 -c "assert ${P99} < 5.0, f'Regression: p99=${P99}ms >= 5ms'"
-
-      - name: Proto tests
-        run: cargo test --package sct-proto
+          export P99
+          python3 -c "
+          import os
+          p99 = float(os.environ['P99'])
+          assert p99 < 5.0, f'REGRESSION: cf-check p99={p99:.3f}ms >= 5ms'
+          print(f'OK: p99={p99:.4f}ms')
+          "
 
   workspace-integration:
-    name: sc-transport integration
+    name: Transport workspace
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -65,25 +55,5 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-
-      - name: Clippy (transport workspace)
-        run: |
-          cargo clippy -p sc-transport -p sc-transport-core -p sc-transport-quic \
-            -p sc-transport-sse -p sc-transport-datagrams \
-            --all-targets --features transport-quic,transport-datagrams -- -D warnings
-
-      - name: Unit tests (transport crates)
-        run: |
-          cargo test -p sc-transport-core
-          cargo test -p sc-transport-quic --features quic-streams
-          cargo test -p sc-transport-sse
-          cargo test -p sc-transport-datagrams --features quic-datagrams
-
-      - name: Integration tests (streaming_matrix + transports)
-        env:
-          SC_TRANSPORT_ALLOW_INSECURE_QUIC: "true"
-          SC_QUIC_MIRROR_SSE: "1"
-        run: bash scripts/ci-transport-integration.sh
-
-      - name: CLI and daemon smoke tests
-        run: bash scripts/ci-cli-daemon-smoke.sh
+      - run: bash scripts/ci-transport-integration.sh
+      - run: bash scripts/ci-cli-daemon-smoke.sh

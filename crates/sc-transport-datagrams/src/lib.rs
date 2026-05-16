@@ -201,7 +201,7 @@ impl QuicDatagramTransport {
     async fn ensure_connection(&self) -> Result<&quinn::Connection, TransportError> {
         self.connection
             .get_or_try_init(|| async {
-                use quinn::{ClientConfig, Endpoint};
+                use quinn::{ClientConfig, Endpoint, TransportConfig};
                 use rustls::client::danger::{
                     HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
                 };
@@ -254,10 +254,14 @@ impl QuicDatagramTransport {
                     .with_custom_certificate_verifier(Arc::new(TofuVerifier))
                     .with_no_client_auth();
                 rustls_cfg.enable_early_data = true;
-                let client_config = ClientConfig::new(Arc::new(
+                let mut client_config = ClientConfig::new(Arc::new(
                     quinn::crypto::rustls::QuicClientConfig::try_from(rustls_cfg)
                         .map_err(|e| TransportError::QuicError(e.to_string()))?,
                 ));
+                let mut tcfg = TransportConfig::default();
+                tcfg.datagram_receive_buffer_size(Some(1 << 20));
+                tcfg.datagram_send_buffer_size(1 << 20);
+                client_config.transport_config(Arc::new(tcfg));
                 let endpoint = Endpoint::client(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
                     .map_err(|e| TransportError::QuicError(e.to_string()))?;
                 self.client_endpoint

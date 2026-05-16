@@ -298,6 +298,8 @@ impl QuicStreamTransport {
         let transport_config = Arc::get_mut(&mut server_config.transport).ok_or_else(|| {
             TransportError::QuicError("failed to get mutable transport config".to_string())
         })?;
+        transport_config.datagram_receive_buffer_size(Some(1 << 20));
+        transport_config.datagram_send_buffer_size(1 << 20);
         transport_config.max_concurrent_bidi_streams(16_u32.into());
 
         let server_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
@@ -435,9 +437,14 @@ impl QuicStreamTransport {
             quinn::crypto::rustls::QuicClientConfig::try_from(rustls_cfg)
                 .map_err(|e| TransportError::QuicError(e.to_string()))?,
         ));
-        if self.use_scientific_cc {
+        {
             let mut tcfg = TransportConfig::default();
-            tcfg.congestion_controller_factory(Arc::new(congestion::SciBbrConfig::default()));
+            // RFC 9221: enable datagram extension in the QUIC handshake (1 MiB buffers).
+            tcfg.datagram_receive_buffer_size(Some(1 << 20));
+            tcfg.datagram_send_buffer_size(1 << 20);
+            if self.use_scientific_cc {
+                tcfg.congestion_controller_factory(Arc::new(congestion::SciBbrConfig::default()));
+            }
             client_config.transport_config(Arc::new(tcfg));
         }
 

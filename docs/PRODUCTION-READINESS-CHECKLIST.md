@@ -20,6 +20,8 @@ production use in the Synaptic Core stack.
 
 ### Manual Linux campaign (kernel `tc netem`, root required)
 
+- [x] Streaming Matrix I-final auf loopback (simulated, repeats=5, release).
+- [ ] Repeat on dedicated Linux host with tc netem (kernel-level shaping).
 - [ ] Run packet-loss integration tests on a Linux host **with** `tc netem` applied (`scripts/netem_runner.sh`).
 - [ ] Run latency and throughput benches on Linux with and without `tc netem`.
 - [ ] Validate fallback behavior at and above threshold (`> 15%` loss) under real impairment.
@@ -44,6 +46,8 @@ production use in the Synaptic Core stack.
 ## B) QUIC Primary Path Validation (Required)
 
 - [x] QUIC stream path validated as primary (not fallback-only behavior).
+- [x] QUIC Datagram-Extension (RFC 9221) via TransportConfig ausgehandelt
+      (datagram_receive_buffer_size=1MiB client+server, seit 2026-05-16).
 - [x] QUIC datagram loopback/path validated under `quic-datagrams` feature.
 - [x] MTU/truncation behavior verified with oversized event payloads.
 - [x] Reconnect/session behavior validated for repeated subscriptions.
