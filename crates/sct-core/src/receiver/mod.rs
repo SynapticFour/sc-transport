@@ -181,13 +181,17 @@ impl FileReceiver {
         // Adaptive / multipath senders may open extra data streams (e.g. duplicates). A fixed
         // `remaining` stream count would stop early when a duplicate chunk consumes a slot,
         // leaving holes and a bad final file hash — keep accepting until all indices are filled.
-        // Parity-Streams: jede FEC-Gruppe sendet parity_shards zusätzliche Streams.
+        // Parity: each FEC group may emit `parity_shards` extra uni streams (`fec_groups * parity`).
+        //
+        // `accepted_streams` counts every `accept_data_stream` iteration from connection start.
+        // It must NOT shrink as `received_chunks` grows — otherwise duplicate / parity traffic
+        // near the tail trips a false "incomplete transfer" while indices are still filling.
         let fec_group_count = total_chunks.div_ceil(manifest.data_shards.max(1));
-        let expected_parity_streams = fec_group_count * manifest.parity_shards;
+        let expected_parity_streams = fec_group_count.saturating_mul(manifest.parity_shards);
+        const EXTRA_STREAM_HEADROOM: usize = 256; // duplicates / speculative re-sends
         let max_streams = total_chunks
-            .saturating_sub(received_chunks.len())
             .saturating_add(expected_parity_streams)
-            .saturating_add(64); // Puffer für Duplikate / Retransmits
+            .saturating_add(EXTRA_STREAM_HEADROOM);
         let mut accepted_streams = 0usize;
         while received_chunks.len() < total_chunks {
             if accepted_streams >= max_streams {

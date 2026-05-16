@@ -859,8 +859,13 @@ impl HybridCongestionController {
         let rtt_f = rtt.as_secs_f64();
         let min_f = self.min_rtt.as_secs_f64();
         let variance_sample = (rtt_f - min_f).powi(2);
+        // Fast EWMA of squared deviation (same as Scientific BBR path).
         self.rtt_variance = 0.9 * self.rtt_variance + 0.1 * variance_sample;
-        self.rtt_variance_trend = self.rtt_variance;
+        // Slower EWMA on top of `rtt_variance` so `rtt_variance_trend` feeds queue-pressure without
+        // mirroring every single RTT tick (PredictiveStabilizer / build_congestion_signal).
+        const TREND_SMOOTH: f64 = 0.85;
+        self.rtt_variance_trend = TREND_SMOOTH * self.rtt_variance_trend
+            + (1.0 - TREND_SMOOTH) * self.rtt_variance;
         self.in_use_bandwidth = self.target_send_rate();
     }
 

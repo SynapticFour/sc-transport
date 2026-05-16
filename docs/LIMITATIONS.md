@@ -46,10 +46,10 @@ This document applies to `sc-transport-datagrams` (v0.x only).
 
 ## Speculative Datagram Duplication
 
-`duplicate_budget` in `MultiPathScheduler` ist auf **4** gesetzt (max. vier gleichzeitige Duplikate).
+`duplicate_budget` in `MultiPathScheduler` defaults to **4** (max. vier gleichzeitige Duplikate) in `send_adaptive`; override with **`SC_SCT_DUPLICATE_BUDGET`** (≥1) for experiments.
 Der Receiver dedupliziert per Chunk-Index (`received_chunks.contains`); doppelte Streams werden konsumiert, nicht erneut persistiert.
 Auswirkung: Multipath-Redundanz unter Loss kann Latenz verbessern; Duplikate erhöhen Wire-Last bis zum Budget.
 
 ## RTT variance (congestion + stabilization)
 
-`ScientificBbrController` and `HybridCongestionController` track an EWMA of squared RTT deviation from `min_rtt` (`rtt_variance`, exposed as `rtt_variance_trend` for scheduling). This feeds `build_congestion_signal` queue pressure and the predictive stabilizer envelope.
+`ScientificBbrController` and `HybridCongestionController` track an EWMA of squared RTT deviation from `min_rtt` as **`rtt_variance`**. **`rtt_variance_trend`** is a slower EWMA layered on `rtt_variance` (Hybrid path) so `build_congestion_signal` queue pressure does not mirror every RTT tick.

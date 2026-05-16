@@ -231,11 +231,18 @@ impl FileSender {
             }
         });
 
+        // Receiver deduplicates by chunk index; caps concurrent speculative duplicates on the wire.
+        // Default 4 after e2e dedup coverage (`e2e_loopback`, `transfer_smoke` duplicate_chunks).
+        let duplicate_budget = std::env::var("SC_SCT_DUPLICATE_BUDGET")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(4)
+            .max(1);
+
         let mut scheduler = MultiPathScheduler {
             paths: Vec::new(),
             speculative_ratio: 0.0, // startet bei 0; wird durch on_feedback_tick hochgeregelt
-            // Receiver deduplicates by chunk index; budget caps concurrent speculative copies.
-            duplicate_budget: 4,
+            duplicate_budget,
             in_flight_duplicates: 0,
             known_reconstructable: Default::default(),
             // Full bucket: first distribute_and_send can happen in the same tick as construction,
@@ -289,7 +296,6 @@ impl FileSender {
         runtime
             .cc
             .on_network_sample(bw_estimate_bps, rtt, prev_rtt, loss_hint);
-        runtime.cc.rtt_variance_trend = runtime.cc.rtt_variance;
         let recv_feedback = ReceiverFeedback {
             decode_delay: Duration::from_millis(if rtt > Duration::from_millis(80) {
                 45
@@ -528,7 +534,6 @@ async fn apply_feedback_if_present(
         runtime
             .cc
             .on_network_sample(runtime.cc.bandwidth_estimate, rtt, runtime.cc.min_rtt, loss);
-        runtime.cc.rtt_variance_trend = runtime.cc.rtt_variance;
         runtime.strategy.update(rtt, loss, 0.2, &feedback);
         if fb.block_reconstructable {
             if let Some(block_id) = fb.completed_block_id {
