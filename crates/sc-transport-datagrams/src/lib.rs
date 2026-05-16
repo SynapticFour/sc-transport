@@ -151,6 +151,7 @@ impl QuicDatagramTransport {
     }
 
     /// True when `RUST_LOG` suggests debug-style logging (for optional `eprintln!` diagnostics).
+    #[cfg(feature = "quic-datagrams")]
     fn rust_log_suggests_verbose() -> bool {
         std::env::var("RUST_LOG")
             .map(|v| {

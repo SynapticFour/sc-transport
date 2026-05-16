@@ -36,6 +36,11 @@ reed-solomon-erasure = "6"
 tempfile = "3"
 serial_test = "3"
 
+[[test]]
+name = "e2e_loopback"
+path = "tests/e2e_loopback.rs"
+required-features = ["test-hooks"]
+
 [[example]]
 name = "bench-transfer"
 path = "examples/bench_transfer.rs"

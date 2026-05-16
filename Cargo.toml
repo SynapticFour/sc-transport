@@ -136,6 +136,7 @@ path = "tests/integration/daemon_smoke.rs"
 [[bench]]
 name = "throughput"
 harness = false
+required-features = ["transport-quic", "transport-datagrams"]
 
 [[bench]]
 name = "latency"

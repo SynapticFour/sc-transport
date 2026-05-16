@@ -359,7 +359,7 @@ mod tests {
                         while let Ok(d) = conn.read_datagram().await {
                             i += 1;
                             // Drop ~50% of probe packets.
-                            if i % 2 == 0 {
+                            if i.is_multiple_of(2) {
                                 let _ = conn.send_datagram(d);
                             }
                         }
