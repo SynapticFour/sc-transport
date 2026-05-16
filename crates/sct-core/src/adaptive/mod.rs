@@ -864,8 +864,8 @@ impl HybridCongestionController {
         // Slower EWMA on top of `rtt_variance` so `rtt_variance_trend` feeds queue-pressure without
         // mirroring every single RTT tick (PredictiveStabilizer / build_congestion_signal).
         const TREND_SMOOTH: f64 = 0.85;
-        self.rtt_variance_trend = TREND_SMOOTH * self.rtt_variance_trend
-            + (1.0 - TREND_SMOOTH) * self.rtt_variance;
+        self.rtt_variance_trend =
+            TREND_SMOOTH * self.rtt_variance_trend + (1.0 - TREND_SMOOTH) * self.rtt_variance;
         self.in_use_bandwidth = self.target_send_rate();
     }
 
