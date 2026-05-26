@@ -57,8 +57,10 @@ For Linux and macOS network emulation playbooks (including a 20 GB Toronto<->Auc
 
 ## Continuous integration
 
-Primary gate: GitHub Actions [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (two jobs on every push/PR).
+Primary gate: GitHub Actions [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (two jobs on every push/PR, or **Run workflow** manually).
 Additional workflows: `experimental.yml` (datagram benches, non-blocking), `codeql.yml`, `quality-gate.yml`, `secret-scan.yml`, `dependency-review.yml`.
+
+Optional **real-WAN** benchmark on Oracle Cloud: workflow [`wan-test.yml`](.github/workflows/wan-test.yml) — **manual only**, no schedule, no AWS/OCI needed for normal CI. See [`docs/WAN-CLOUD-CI.md`](docs/WAN-CLOUD-CI.md).
 
 | Job | Local equivalent | What it runs |
 |-----|----------------|--------------|

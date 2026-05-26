@@ -1,4 +1,6 @@
-# Manual / scheduled WAN test on Oracle Always Free (no push/PR trigger).
+# Optional real-WAN benchmark on Oracle Always Free. Not part of the default CI gate.
+# Run manually from Actions → "WAN Test (Oracle Always Free)" → Run workflow when OCI
+# secrets are configured. No schedule — avoids failures without a cloud account.
 name: WAN Test (Oracle Always Free)
 
 on:
@@ -13,9 +15,6 @@ on:
       github_ref:
         description: Git ref cloned on VMs
         default: main
-  schedule:
-  # Mondays 04:00 UTC — optional; disable in repo settings if undesired.
-    - cron: "0 4 * * 1"
 
 concurrency:
   group: wan-test-oracle
@@ -29,7 +28,26 @@ env:
   TF_IN_AUTOMATION: true
 
 jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    outputs:
+      cloud_configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - id: check
+        name: Check OCI secrets
+        run: |
+          if [[ -z "${{ secrets.OCI_TENANCY_OCID }}" ]]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=WAN cloud test skipped::No OCI secrets configured."
+            echo "Normal CI does not need AWS or Oracle. See docs/WAN-CLOUD-CI.md"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "OCI secrets present — provisioning WAN test VMs."
+          fi
+
   provision-and-test:
+    needs: readiness
+    if: needs.readiness.outputs.cloud_configured == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
