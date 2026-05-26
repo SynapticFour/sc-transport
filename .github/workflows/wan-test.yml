@@ -163,4 +163,6 @@ jobs:
           TF_VAR_private_key: ${{ secrets.OCI_PRIVATE_KEY }}
           TF_VAR_compartment_ocid: ${{ secrets.OCI_COMPARTMENT_OCID }}
           TF_VAR_ssh_public_key: ${{ secrets.OCI_SSH_PUBLIC_KEY }}
-        run: terraform destroy -auto-approve
+        run: |
+          terraform init -backend=false
+          terraform destroy -auto-approve
