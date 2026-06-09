@@ -51,10 +51,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: "~1.7"
 
@@ -145,7 +145,7 @@ jobs:
 
       - name: Upload Results as Artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wan-test-results-${{ github.run_id }}
           path: wan-results/
