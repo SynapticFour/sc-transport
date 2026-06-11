@@ -16,6 +16,14 @@ Project-wide ADRs live in [`DECISIONS.md`](../DECISIONS.md) at the repo root.
 **Tests:** `duplicate_chunks_are_deduplicated` (`transfer_smoke`), `loopback_with_duplication` (`e2e_loopback`).
 **Erhöhung:** `duplicate_budget=8` nach weiteren Loss-Szenarien.
 
+### 2026-05 Oracle Cloud entfernt
+
+Oracle Cloud Always Free hat uns bei der Account-Erstellung
+abgewiesen (bekanntes Problem). Ersatz:
+- Fly.io: kostenlos, zwei Regionen (fra/iad), sofort nutzbar
+- AWS EC2 t4g.small: ~$0.034/Test-Run, aus AWS Activate Credits
+Terraform für Oracle wurde vollständig entfernt.
+
 ### 2026-05 RTT-Varianz EWMA für Stabilizer
 
 **Entscheidung:** Quadratische RTT-Abweichung vom `min_rtt` als EWMA (`0.9/0.1`) in BBR und `HybridCongestionController`; `rtt_variance_trend` speist Queue-Pressure im Predictive-Stabilizer.

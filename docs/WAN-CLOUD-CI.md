@@ -1,12 +1,13 @@
-# WAN cloud test (optional, manual)
+# WAN cloud test (optional)
 
-The default CI gate does **not** need AWS, Oracle, or any cloud account.
+The default CI gate does **not** need AWS, Fly.io, or any cloud account.
 
 | What | Trigger | Cloud required |
 |------|---------|----------------|
 | **CI** (`ci.yml`) | push, PR, or manual *Run workflow* | No |
 | CodeQL, secret scan, quality gate | push / schedule | No |
-| **WAN Test (Oracle Always Free)** | manual only | Yes (OCI) |
+| **WAN Test (AWS EC2)** | manual or Monday 04:00 UTC | Yes (AWS) |
+| **WAN Test (Fly.io)** | local script only | Yes (Fly.io, free tier) |
 
 ## Local WAN-shaped benchmarks (no cloud)
 
@@ -19,27 +20,31 @@ make transfer-test PROFILE=good SIZE_GB=1
 
 See [`NETWORK-EMULATION.md`](NETWORK-EMULATION.md).
 
-## When you want a real cross-region WAN run in GitHub Actions
+## Fly.io (free, local script)
 
-1. Create an [Oracle Cloud](https://www.oracle.com/cloud/free/) Always Free account (or reuse an existing one).
-2. Add repository secrets (Settings → Secrets and variables → Actions):
+Cross-region test Frankfurt → Ashburn without AWS credits:
+
+```bash
+# See infra/flyio/README.md for one-time setup
+bash scripts/wan_test_flyio.sh
+```
+
+## AWS EC2 in GitHub Actions
+
+1. Apply for [AWS Activate Credits](https://aws.amazon.com/startups/credits)
+   (Founders package: $1,000).
+2. Create EC2 key pair `sct-wan-key` and security group `sg-sct-wan` (SSH + port 9410)
+   in `eu-central-1` and `us-east-1`. See [`infra/aws/README.md`](../infra/aws/README.md).
+3. Add repository secrets (Settings → Secrets and variables → Actions):
 
    | Secret | Purpose |
    |--------|---------|
-   | `OCI_TENANCY_OCID` | Tenancy OCID |
-   | `OCI_USER_OCID` | API user OCID |
-   | `OCI_FINGERPRINT` | API key fingerprint |
-   | `OCI_PRIVATE_KEY` | PEM private key (API signing) |
-   | `OCI_COMPARTMENT_OCID` | Compartment for VMs |
-   | `OCI_SSH_PUBLIC_KEY` | SSH public key installed on VMs |
-   | `OCI_SSH_PRIVATE_KEY` | Matching SSH private key for Actions |
+   | `AWS_ACCESS_KEY_ID` | IAM user with EC2 permissions |
+   | `AWS_SECRET_ACCESS_KEY` | Matching secret key |
+   | `SCT_WAN_SSH_PRIVATE_KEY` | Private key for `sct-wan-key` (SSH to sender VM) |
 
-3. In GitHub: **Actions** → **WAN Test (Oracle Always Free)** → **Run workflow**.
+4. In GitHub: **Actions** → **WAN Test (AWS EC2 — Activate Credits)** → **Run workflow**.
 
-There is **no cron schedule**; nothing runs until you start it.
+Scheduled runs: Mondays 04:00 UTC. Teardown runs always (even on failure).
 
-If secrets are missing, the workflow finishes successfully after `readiness` (provision job skipped; no Terraform, no cost).
-
-## AWS
-
-An experimental AWS EC2 workflow existed only in a local branch; **main** uses Oracle (`infra/oracle/`). AWS is not required.
+If AWS secrets are missing, the workflow fails at credential configuration — normal CI is unaffected.

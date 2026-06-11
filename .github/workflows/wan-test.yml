@@ -1,186 +1,53 @@
-# Optional real-WAN benchmark on Oracle Always Free. Not part of the default CI gate.
-# Run manually from Actions → "WAN Test (Oracle Always Free)" → Run workflow when OCI
-# secrets are configured. No schedule — avoids failures without a cloud account.
-name: WAN Test (Oracle Always Free)
-
+name: WAN Test (AWS EC2 — Activate Credits)
 on:
   workflow_dispatch:
-    inputs:
-      sender_region:
-        description: OCI sender region
-        default: eu-frankfurt-1
-      receiver_region:
-        description: OCI receiver region
-        default: us-ashburn-1
-      github_ref:
-        description: Git ref cloned on VMs
-        default: main
-
-concurrency:
-  group: wan-test-oracle
-  cancel-in-progress: false
-
-env:
-  TF_VAR_sender_region: ${{ github.event.inputs.sender_region || 'eu-frankfurt-1' }}
-  TF_VAR_receiver_region: ${{ github.event.inputs.receiver_region || 'us-ashburn-1' }}
-  TF_VAR_github_ref: ${{ github.event.inputs.github_ref || github.ref_name }}
-  TF_VAR_github_repo: SynapticFour/sc-transport
-  TF_IN_AUTOMATION: true
+  schedule:
+    - cron: '0 4 * * 1'  # Montags 04:00 UTC
 
 jobs:
-  readiness:
+  wan-test:
     runs-on: ubuntu-latest
-    outputs:
-      cloud_configured: ${{ steps.check.outputs.configured }}
+    timeout-minutes: 30
     steps:
-      - id: check
-        name: Check OCI secrets
-        run: |
-          if [[ -z "${{ secrets.OCI_TENANCY_OCID }}" ]]; then
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=WAN cloud test skipped::No OCI secrets configured."
-            echo "Normal CI does not need AWS or Oracle. See docs/WAN-CLOUD-CI.md"
-          else
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-            echo "OCI secrets present — provisioning WAN test VMs."
-          fi
+      - uses: actions/checkout@v4
 
-  provision-and-test:
-    needs: readiness
-    if: needs.readiness.outputs.cloud_configured == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v4
+      - name: Configure AWS CLI
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          terraform_version: "~1.7"
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            eu-central-1
 
-      - name: Write OCI API private key
+      - name: Start Instances
+        run: bash infra/aws/start_wan_test.sh
+
+      - name: Wait for Ready (max 5 min)
         run: |
-          printf '%s\n' "${{ secrets.OCI_PRIVATE_KEY }}" > /tmp/oci_api_key.pem
-          chmod 600 /tmp/oci_api_key.pem
+          SENDER_ID=$(grep eu-central-1 /tmp/sct-wan-instances.txt | cut -d' ' -f1)
+          for i in $(seq 1 30); do
+            STATE=$(aws ec2 describe-instances --region eu-central-1 \
+                --instance-ids $SENDER_ID \
+                --query 'Reservations[0].Instances[0].State.Name' --output text)
+            [ "$STATE" = "running" ] && echo "Ready!" && break
+            sleep 10
+          done
 
-      - name: Write SSH private key
-        run: |
-          printf '%s\n' "${{ secrets.OCI_SSH_PRIVATE_KEY }}" > /tmp/oci_ssh_key
-          chmod 600 /tmp/oci_ssh_key
-
-      - name: Terraform Init
-        working-directory: infra/oracle
+      - name: Run Transfer Test
         env:
-          TF_VAR_tenancy_ocid: ${{ secrets.OCI_TENANCY_OCID }}
-          TF_VAR_user_ocid: ${{ secrets.OCI_USER_OCID }}
-          TF_VAR_fingerprint: ${{ secrets.OCI_FINGERPRINT }}
-          TF_VAR_private_key: ${{ secrets.OCI_PRIVATE_KEY }}
-          TF_VAR_compartment_ocid: ${{ secrets.OCI_COMPARTMENT_OCID }}
-          TF_VAR_ssh_public_key: ${{ secrets.OCI_SSH_PUBLIC_KEY }}
-        run: terraform init -backend=false
+          SCT_WAN_SSH_PRIVATE_KEY: ${{ secrets.SCT_WAN_SSH_PRIVATE_KEY }}
+        run: bash infra/aws/run_test.sh
 
-      - name: Provision VMs (with region fallback)
-        id: provision
-        working-directory: infra/oracle
-        env:
-          TF_VAR_tenancy_ocid: ${{ secrets.OCI_TENANCY_OCID }}
-          TF_VAR_user_ocid: ${{ secrets.OCI_USER_OCID }}
-          TF_VAR_fingerprint: ${{ secrets.OCI_FINGERPRINT }}
-          TF_VAR_private_key: ${{ secrets.OCI_PRIVATE_KEY }}
-          TF_VAR_compartment_ocid: ${{ secrets.OCI_COMPARTMENT_OCID }}
-          TF_VAR_ssh_public_key: ${{ secrets.OCI_SSH_PUBLIC_KEY }}
-        run: |
-          chmod +x try_regions.sh
-          bash try_regions.sh || {
-            echo "::error::Could not provision in any region (Out of capacity?)"
-            exit 1
-          }
-          echo "sender_ip=$(terraform output -raw sender_ip)" >> "$GITHUB_ENV"
-          echo "receiver_ip=$(terraform output -raw receiver_ip)" >> "$GITHUB_ENV"
-          echo "sct_port=$(terraform output -raw sct_port)" >> "$GITHUB_ENV"
-          echo "sender_region=$(terraform output -raw sender_region)" >> "$GITHUB_ENV"
-          echo "receiver_region=$(terraform output -raw receiver_region)" >> "$GITHUB_ENV"
-          # Keep provider regions aligned with applied state for destroy.
-          echo "TF_VAR_sender_region=$(terraform output -raw sender_region)" >> "$GITHUB_ENV"
-          echo "TF_VAR_receiver_region=$(terraform output -raw receiver_region)" >> "$GITHUB_ENV"
-
-      - name: Wait for cloud-init (max 45 min)
-        env:
-          SSH_KEY: /tmp/oci_ssh_key
-        run: |
-          wait_ready() {
-            local host="$1" label="$2"
-            for i in $(seq 1 270); do
-              if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
-                -i "$SSH_KEY" "ubuntu@$host" test -f /tmp/sct-ready 2>/dev/null; then
-                echo "$label ready after $((i * 10))s"
-                return 0
-              fi
-              if (( i % 6 == 0 )); then
-                echo "waiting for $label ($host)..."
-              fi
-              sleep 10
-            done
-            echo "::error::$label not ready in time"
-            return 1
-          }
-          wait_ready "$SENDER_IP" "Sender"
-          wait_ready "$RECEIVER_IP" "Receiver"
-
-      - name: Run WAN Transfer Test
-        env:
-          SSH_KEY: /tmp/oci_ssh_key
-        run: |
-          ssh -o StrictHostKeyChecking=no -i "$SSH_KEY" "ubuntu@$SENDER_IP" \
-            "SENDER_REGION='$sender_region' RECEIVER_REGION='$receiver_region' \
-             wan_test.sh '$RECEIVER_IP' /tmp/wan-results '$sct_port'"
-
-      - name: Download Results
-        env:
-          SSH_KEY: /tmp/oci_ssh_key
-        run: |
-          mkdir -p wan-results
-          scp -o StrictHostKeyChecking=no -i "$SSH_KEY" \
-            "ubuntu@$SENDER_IP:/tmp/wan-results/*" ./wan-results/ || true
-
-      - name: Upload Results as Artifact
-        if: always()
-        uses: actions/upload-artifact@v7
+      - name: Upload Results
+        uses: actions/upload-artifact@v4
         with:
-          name: wan-test-results-${{ github.run_id }}
+          name: wan-results-${{ github.run_id }}
           path: wan-results/
-          if-no-files-found: ignore
 
-      - name: Post Results to Job Summary
+      - name: Teardown (always)
         if: always()
-        run: |
-          {
-            echo "## WAN Test Results (${sender_region} → ${receiver_region})"
-            echo ""
-            echo "| Field | Value |"
-            echo "|-------|-------|"
-            echo "| Sender | \`$SENDER_IP\` |"
-            echo "| Receiver | \`$RECEIVER_IP:${sct_port}\` |"
-            echo ""
-            if [[ -f wan-results/results.txt ]]; then
-              echo '```'
-              cat wan-results/results.txt
-              echo '```'
-            else
-              echo "_No results file (test may have failed before completion)._"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
+        run: bash infra/aws/teardown.sh
 
-      - name: Destroy VMs (always)
-        if: always()
-        working-directory: infra/oracle
-        env:
-          TF_VAR_tenancy_ocid: ${{ secrets.OCI_TENANCY_OCID }}
-          TF_VAR_user_ocid: ${{ secrets.OCI_USER_OCID }}
-          TF_VAR_fingerprint: ${{ secrets.OCI_FINGERPRINT }}
-          TF_VAR_private_key: ${{ secrets.OCI_PRIVATE_KEY }}
-          TF_VAR_compartment_ocid: ${{ secrets.OCI_COMPARTMENT_OCID }}
-          TF_VAR_ssh_public_key: ${{ secrets.OCI_SSH_PUBLIC_KEY }}
-        run: |
-          terraform init -backend=false
-          terraform destroy -auto-approve
+    # Secrets needed (Settings → Secrets → Actions):
+    # AWS_ACCESS_KEY_ID        — IAM User mit EC2 Rechten
+    # AWS_SECRET_ACCESS_KEY    — dazu passend
+    # SCT_WAN_SSH_PRIVATE_KEY  — privater Schlüssel zu EC2 Key Pair sct-wan-key

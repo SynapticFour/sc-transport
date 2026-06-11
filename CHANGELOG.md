@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- WAN-Test Infrastruktur von Oracle Cloud (unerreichbar) auf
+  Fly.io (kostenlos, fra+iad) und AWS EC2 (Activate Credits)
+  umgestellt. Terraform/Oracle vollständig entfernt.
+
 - Benchmark I-final (release, repeats=5): quic-stream/excellent/large 17 237 eps
   (+32% vs G). cf-check p99 = 0.015 ms (war 31 ms). Datagram-Extension aktiv;
   excellent/tiny fallback 2/200 (unverändert vs. G). excellent/small weiterhin
