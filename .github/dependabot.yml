@@ -14,3 +14,30 @@ updates:
       include: "scope"
     labels:
       - "dependencies"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    labels:
+      - "dependencies"
+    ignore:
+      - dependency-name: "indicatif"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "criterion"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "socket2"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "toml"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "dirs"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "thiserror"
+        update-types: ["version-update:semver-major"]
