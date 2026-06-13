@@ -3,6 +3,16 @@
 Transport layer for [Synaptic Core](https://github.com/SynapticFour/Synaptic-Core).
 Provides implementations of the `Transport` trait for telemetry delivery:
 
+**Synaptic Core stack:** see **[docs/ECOSYSTEM.md](docs/ECOSYSTEM.md)** for sc-specs, Synaptic-Core, and Synaptic-Core-Test.
+
+### Local daemon (Docker)
+
+```bash
+make up      # start sct-daemon
+make down    # stop; keep volumes
+make destroy # stop; remove volumes
+```
+
 > **Legal notice:** This repository documents technical capabilities and operating guidance. It is not legal advice and does not by itself provide regulatory certification or compliance guarantees. Compliance outcomes depend on operator configuration, contracts, and organisational controls.
 
 | Crate | Transport | Status | When to use |
