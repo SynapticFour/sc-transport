@@ -13,8 +13,31 @@ LOSS ?= 0.008
 SCT_CORE_ITESTS := completion_campaign completion_first_ab delta_transfer transfer_smoke \
 	e2e_loopback fec_recovery prompt5_integration
 
-.PHONY: ci ci-all ci-transport-integration ci-cli-daemon-smoke test-unit test-integration \
+.PHONY: help up down destroy ci ci-all ci-transport-integration ci-cli-daemon-smoke test-unit test-integration \
 	test-integration-sct-core bench netem-test transfer-test profile-quic-good-large clean-results
+
+help:
+	@echo "sc-transport — Synaptic Four Core stack"
+	@echo ""
+	@echo "  make up        Start sct-daemon via Docker Compose"
+	@echo "  make down      Stop daemon; keep volumes"
+	@echo "  make destroy   Stop daemon; remove volumes"
+	@echo ""
+	@echo "  make ci        Full CI gate (fmt, clippy, tests)"
+	@echo "  make transfer-test   Loopback transfer smoke test"
+	@echo ""
+	@echo "See docs/ECOSYSTEM.md and README.md for CLI examples."
+
+up:
+	docker compose up -d --build
+	@echo "sct-daemon: ports 7272 (transfer), 7273, 9090 (metrics)"
+
+down:
+	docker compose down --remove-orphans
+
+destroy:
+	docker compose down -v --remove-orphans
+	@echo "sc-transport stack destroyed."
 
 ci:
 	cargo fmt --all -- --check
