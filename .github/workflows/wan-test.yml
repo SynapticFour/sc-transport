@@ -1,8 +1,9 @@
 name: WAN Test (AWS EC2 — Activate Credits)
+
+# Disabled until AWS credentials are configured. Run manually via workflow_dispatch when ready.
+# Required secrets: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, SCT_WAN_SSH_PRIVATE_KEY
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 4 * * 1'  # Montags 04:00 UTC
 
 jobs:
   wan-test:
