@@ -16,7 +16,12 @@ updates:
       - "dependencies"
     ignore:
       - dependency-name: "*"
-        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+        update-types:
+          [
+            "version-update:semver-major",
+            "version-update:semver-minor",
+            "version-update:semver-patch",
+          ]
 
   - package-ecosystem: "cargo"
     directory: "/"
@@ -40,4 +45,8 @@ updates:
       - dependency-name: "dirs"
         update-types: ["version-update:semver-major"]
       - dependency-name: "thiserror"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "bincode"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "prometheus"
         update-types: ["version-update:semver-major"]
