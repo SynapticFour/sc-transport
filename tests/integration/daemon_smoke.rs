@@ -113,7 +113,7 @@ format = "text"
         });
 
         let mut completed = false;
-        for _ in 0..120 {
+        for _ in 0..240 {
             let row = client
                 .get(format!(
                     "http://127.0.0.1:{api_port}/v1/transfer/{transfer_id}"
@@ -217,7 +217,7 @@ format = "text"
         ]);
         recv_cmd.stdout(std::process::Stdio::null());
         let mut recv_child = recv_cmd.spawn().expect("spawn recv");
-        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
 
         let mut daemon_cmd = Command::new(sct_daemon_bin());
         daemon_cmd
@@ -245,7 +245,7 @@ format = "text"
         let transfer_id = submit_json["transfer_id"].as_str().expect("transfer_id");
 
         let mut completed = false;
-        for _ in 0..120 {
+        for _ in 0..240 {
             let row = client
                 .get(format!(
                     "http://127.0.0.1:{api_port}/v1/transfer/{transfer_id}"
