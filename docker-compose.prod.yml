@@ -1,0 +1,17 @@
+services:
+  sct-daemon:
+    image: ghcr.io/synapticfour/sct-daemon:${SCT_VERSION}
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
+    ports:
+      - "${SCT_LISTEN_PORT:-7272}:7272"
+      - "${SCT_API_PORT:-7273}:7273"
+      - "${SCT_METRICS_PORT:-9090}:9090"
+    volumes:
+      - sct_data:/data
+      - ${SCT_CONFIG:-./sct.toml}:/etc/sct/sct.toml:ro
+    environment:
+      RUST_LOG: ${RUST_LOG:-info}
+    restart: unless-stopped
+
+volumes:
+  sct_data:

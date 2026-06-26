@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+VERSION="${SCT_RELEASE_VERSION:?set SCT_RELEASE_VERSION}"
+export SCT_VERSION="${VERSION}"
+STAGING="${RELEASE_STAGING_DIR:-release-staging}"
+rm -rf "$STAGING"
+mkdir -p "$STAGING"
+./scripts/export_offline_bundle.sh --output-dir "${STAGING}/offline-bundle" --version "${VERSION}"
+BUNDLE="${STAGING}/sc-transport-offline-${VERSION}"
+mkdir -p "${BUNDLE}/scripts"
+cp -R "${STAGING}/offline-bundle/." "${BUNDLE}/"
+cp docker-compose.prod.yml install.sh import.sh sct.toml.example .env.example "${BUNDLE}/"
+cp scripts/import_offline_bundle.sh "${BUNDLE}/scripts/"
+tar -czf "sc-transport-offline-${VERSION}.tar.gz" -C "$STAGING" "sc-transport-offline-${VERSION}"
+echo "Created sc-transport-offline-${VERSION}.tar.gz"
