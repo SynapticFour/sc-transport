@@ -1,19 +1,12 @@
 repos:
   - repo: local
     hooks:
-      - id: cargo-fmt
-        name: cargo fmt
-        entry: cargo fmt --
-        language: system
-        types: [rust]
+      - id: ci-parity
+        name: GitHub CI parity (fmt + clippy + test)
+        entry: scripts/hooks/ci-check.sh
+        language: script
         pass_filenames: false
-      - id: cargo-clippy
-        name: cargo clippy
-        entry: cargo clippy --all-targets --all-features -- -D warnings
-        language: system
-        types: [rust]
-        pass_filenames: false
-
+        always_run: true
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
