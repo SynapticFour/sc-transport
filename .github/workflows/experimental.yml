@@ -61,17 +61,34 @@ jobs:
           fi
           python3 scripts/compare_bench_results.py artifacts/previous-bench.json artifacts/current-bench.json artifacts/regressions.txt
           cp artifacts/current-bench.json artifacts/previous-bench.json
-      - name: Create issue on benchmark regression
+      - name: Report benchmark regression (deduped)
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ -f artifacts/regressions.txt ] && [ "$(cat artifacts/regressions.txt)" = "true" ]; then
             echo "::warning::Experimental datagram benchmark regression detected"
-            gh issue create \
-              --title "Experimental datagram benchmark regression detected" \
-              --body "The experimental packet-loss benchmark changed significantly. See workflow artifacts for details." \
-              || echo "Could not open GitHub issue (permissions or API); see workflow warning."
+            TITLE="Experimental datagram benchmark regression detected"
+            BODY="$(cat <<EOF
+          The experimental packet-loss benchmark changed significantly.
+
+          Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          Commit: ${{ github.sha }}
+
+          See workflow artifacts for details.
+
+          Policy: this workflow updates a single open tracking issue instead of filing a new issue on every regression.
+          EOF
+          )"
+            EXISTING="$(gh issue list --state open --search "$TITLE in:title" --json number,title --jq "[.[] | select(.title==\"$TITLE\")] | first | .number // empty")"
+            if [ -n "$EXISTING" ]; then
+              gh issue comment "$EXISTING" --body "$BODY" \
+                || echo "Could not comment on existing issue #$EXISTING; see workflow warning."
+              echo "Updated existing issue #$EXISTING (no duplicate created)."
+            else
+              gh issue create --title "$TITLE" --body "$BODY" \
+                || echo "Could not open GitHub issue (permissions or API); see workflow warning."
+            fi
           else
             echo "No regression issue needed."
           fi
