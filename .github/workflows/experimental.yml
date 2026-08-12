@@ -1,9 +1,10 @@
 name: Sc Transport Experimental Datagrams
 
+# Frugal: not on every main push — weekly schedule + dispatch.
 on:
-  push:
-    branches:
-      - main
+  schedule:
+    - cron: "50 5 * * 1"
+  workflow_dispatch:
 
 
 concurrency:
@@ -20,6 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - run: cargo test -p sc-transport-datagrams --features quic-datagrams --test datagram_delivery_no_loss
       - run: cargo test -p sc-transport-datagrams --features quic-datagrams --test datagram_fallback_trigger
       - run: |
@@ -35,6 +37,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - run: cargo bench --features transport-datagrams --bench packet_loss -- --quick
       - run: |
           mkdir -p artifacts
