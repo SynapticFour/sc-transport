@@ -33,6 +33,7 @@ impl TransportPath for DummyPath {
     fn path_kind(&self) -> sct_core::adaptive::PathKind {
         self.kind
     }
+    fn update_stats(&self, _rtt: Duration, _bandwidth_bps: f64, _loss_rate: f64) {}
 }
 
 #[derive(Debug, Serialize)]

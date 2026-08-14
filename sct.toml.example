@@ -17,6 +17,8 @@ enable_resumption = true
 [auth]
 mode = "tofu"
 known_hosts_file = "~/.sct/known_hosts"
+# Optional REST bearer token. Env `SCT_DAEMON_API_TOKEN` overrides. Empty = unauthenticated API.
+api_token = ""
 
 [metrics]
 enabled = true

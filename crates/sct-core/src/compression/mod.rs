@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use sct_proto::CompressionType;
 
 /// True wenn die Magic-Bytes auf ein bereits-komprimiertes Format hinweisen.
@@ -16,21 +18,24 @@ fn is_likely_compressed(data: &[u8]) -> bool {
     }
 }
 
-pub fn maybe_compress(input: &[u8], mode: &CompressionType) -> anyhow::Result<Vec<u8>> {
+pub fn maybe_compress<'a>(
+    input: &'a [u8],
+    mode: &CompressionType,
+) -> anyhow::Result<Cow<'a, [u8]>> {
     match mode {
-        CompressionType::None => Ok(input.to_vec()),
+        CompressionType::None => Ok(Cow::Borrowed(input)),
         CompressionType::Zstd { level } => {
             // Schritt 1: Magic-Byte-Check — keine CPU für hoffnungslose Fälle.
             if is_likely_compressed(input) {
-                return Ok(input.to_vec());
+                return Ok(Cow::Borrowed(input));
             }
             // Schritt 2: Komprimieren und Expansion-Guard prüfen.
             let compressed = zstd::stream::encode_all(input, *level)?;
             if compressed.len() >= input.len() {
                 // Zstd hat die Daten vergrößert (z.B. random/encrypted data) — passthrough.
-                Ok(input.to_vec())
+                Ok(Cow::Borrowed(input))
             } else {
-                Ok(compressed)
+                Ok(Cow::Owned(compressed))
             }
         }
     }

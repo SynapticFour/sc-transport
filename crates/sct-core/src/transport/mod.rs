@@ -1,10 +1,12 @@
 use crate::congestion::SciBbrConfig;
-use anyhow::Result;
+use anyhow::{Context, Result};
+use bytes::Bytes;
 use quinn::{
     ClientConfig, Endpoint, EndpointConfig, RecvStream, SendStream, ServerConfig, TokioRuntime,
 };
 use rcgen::generate_simple_self_signed;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::crypto::{verify_tls12_signature, verify_tls13_signature, WebPkiSupportedAlgorithms};
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, Error as RustlsError, SignatureScheme};
 use socket2::{Domain, Protocol, Socket, Type};
@@ -16,7 +18,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 #[derive(Debug, Clone)]
 pub struct TransportConfig {
@@ -26,6 +28,8 @@ pub struct TransportConfig {
     pub target_bandwidth_mbps: Option<u64>,
     pub keep_alive_interval_secs: u32,
     pub idle_timeout_secs: u32,
+    /// Hint only: Quinn's UDP driver enables GSO/GRO on Linux when the kernel
+    /// supports it. SPARQ does not reimplement Aspera FASP segmentation.
     pub enable_gso: bool,
 }
 
@@ -41,6 +45,10 @@ impl Default for TransportConfig {
             enable_gso: true,
         }
     }
+}
+
+fn ring_sig_algs() -> WebPkiSupportedAlgorithms {
+    rustls::crypto::ring::default_provider().signature_verification_algorithms
 }
 
 #[derive(Debug, Error)]
@@ -83,20 +91,20 @@ impl ServerCertVerifier for InsecureTofuVerifier {
 
     fn verify_tls12_signature(
         &self,
-        _message: &[u8],
-        _cert: &CertificateDer<'_>,
-        _dss: &DigitallySignedStruct,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
     ) -> std::result::Result<HandshakeSignatureValid, RustlsError> {
-        Ok(HandshakeSignatureValid::assertion())
+        verify_tls12_signature(message, cert, dss, &ring_sig_algs())
     }
 
     fn verify_tls13_signature(
         &self,
-        _message: &[u8],
-        _cert: &CertificateDer<'_>,
-        _dss: &DigitallySignedStruct,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
     ) -> std::result::Result<HandshakeSignatureValid, RustlsError> {
-        Ok(HandshakeSignatureValid::assertion())
+        verify_tls13_signature(message, cert, dss, &ring_sig_algs())
     }
 
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
@@ -120,27 +128,19 @@ impl SctEndpoint {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let suggested_buf = suggested_socket_buffer_bytes(&config);
         debug!(
-            "suggested socket buffers (bytes): {}, gso_enabled={}",
+            "suggested socket buffers (bytes): {}, gso_hint={}",
             suggested_buf, config.enable_gso
         );
-        let cert = generate_simple_self_signed(vec!["localhost".to_string()])?;
-        let cert_der: CertificateDer<'static> = CertificateDer::from(cert.cert.der().to_vec());
-        let key_der = PrivatePkcs8KeyDer::from(cert.signing_key.serialize_der());
+        let (cert_der, key_der) = load_or_create_server_identity()?;
 
         let mut server_config = ServerConfig::with_single_cert(vec![cert_der], key_der.into())
             .map_err(|e| TransportError::Quic(e.to_string()))?;
-        let transport = Arc::get_mut(&mut server_config.transport)
-            .ok_or_else(|| TransportError::Quic("failed mutable transport config".to_string()))?;
-        transport.max_concurrent_bidi_streams(config.max_concurrent_streams.into());
-        transport.congestion_controller_factory(Arc::new(SciBbrConfig::default()));
-        transport.keep_alive_interval(Some(Duration::from_secs(
-            config.keep_alive_interval_secs as u64,
-        )));
-        transport.max_idle_timeout(Some(
-            Duration::from_secs(config.idle_timeout_secs as u64)
-                .try_into()
-                .map_err(|e| TransportError::Quic(format!("invalid idle timeout: {e}")))?,
-        ));
+        apply_sparq_quinn_transport(
+            Arc::get_mut(&mut server_config.transport).ok_or_else(|| {
+                TransportError::Quic("failed mutable transport config".to_string())
+            })?,
+            &config,
+        )?;
 
         let socket =
             configured_udp_socket(config.bind_addr, suggested_buf as usize, config.enable_gso)
@@ -160,7 +160,7 @@ impl SctEndpoint {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let suggested_buf = suggested_socket_buffer_bytes(&config);
         debug!(
-            "suggested socket buffers (bytes): {}, gso_enabled={}",
+            "suggested socket buffers (bytes): {}, gso_hint={}",
             suggested_buf, config.enable_gso
         );
         let mut rustls_cfg = rustls::ClientConfig::builder()
@@ -168,10 +168,13 @@ impl SctEndpoint {
             .with_custom_certificate_verifier(Arc::new(InsecureTofuVerifier))
             .with_no_client_auth();
         rustls_cfg.enable_early_data = true;
-        let client_config = ClientConfig::new(Arc::new(
+        let mut client_config = ClientConfig::new(Arc::new(
             quinn::crypto::rustls::QuicClientConfig::try_from(rustls_cfg)
                 .map_err(|e| TransportError::Quic(e.to_string()))?,
         ));
+        let mut tcfg = quinn::TransportConfig::default();
+        apply_sparq_quinn_transport(&mut tcfg, &config)?;
+        client_config.transport_config(Arc::new(tcfg));
         let socket =
             configured_udp_socket(config.bind_addr, suggested_buf as usize, config.enable_gso)
                 .map_err(|e| TransportError::Io(e.to_string()))?;
@@ -217,6 +220,28 @@ fn suggested_socket_buffer_bytes(config: &TransportConfig) -> u64 {
     (bdp_bytes * 4).max(32 * 1024 * 1024)
 }
 
+fn apply_sparq_quinn_transport(
+    transport: &mut quinn::TransportConfig,
+    config: &TransportConfig,
+) -> Result<()> {
+    transport.max_concurrent_bidi_streams(config.max_concurrent_streams.into());
+    transport.max_concurrent_uni_streams((config.max_concurrent_streams.saturating_mul(4)).into());
+    transport.congestion_controller_factory(Arc::new(SciBbrConfig::default()));
+    transport.keep_alive_interval(Some(Duration::from_secs(
+        config.keep_alive_interval_secs as u64,
+    )));
+    transport.max_idle_timeout(Some(
+        Duration::from_secs(config.idle_timeout_secs as u64)
+            .try_into()
+            .map_err(|e| TransportError::Quic(format!("invalid idle timeout: {e}")))?,
+    ));
+    // RFC 9221 datagrams: speculative FEC/NACK copies. Not FASP; IETF QUIC only.
+    transport.datagram_receive_buffer_size(Some(1 << 20));
+    transport.datagram_send_buffer_size(1 << 20);
+    let _ = config.enable_gso;
+    Ok(())
+}
+
 fn configured_udp_socket(
     bind_addr: SocketAddr,
     buf_size: usize,
@@ -234,11 +259,12 @@ fn configured_udp_socket(
     }
     socket.set_send_buffer_size(buf_size)?;
     socket.set_recv_buffer_size(buf_size)?;
-    // Best-effort: GSO support is platform/runtime dependent; log and continue.
+    // Quinn's TokioRuntime / quinn-udp enables UDP GSO/GRO on Linux. This flag is a
+    // documented operator hint, not a second segmentation protocol.
     if enable_gso {
-        debug!("gso requested: runtime/driver will negotiate support if available");
+        debug!("gso hint on: quinn-udp will use kernel GSO/GRO when available");
     } else {
-        debug!("gso explicitly disabled");
+        debug!("gso hint off (kernel offload still decided by quinn-udp)");
     }
     socket.bind(&bind_addr.into())?;
     Ok(socket.into())
@@ -273,6 +299,24 @@ impl SctConnection {
             .map_err(|e| anyhow::Error::new(TransportError::Quic(e.to_string())))
     }
 
+    /// RFC 9221 datagram send for speculative / small shards. Large bulk stays on uni streams.
+    pub fn send_datagram(&self, payload: Bytes) -> Result<()> {
+        self.connection
+            .send_datagram(payload)
+            .map_err(|e| anyhow::Error::new(TransportError::Quic(e.to_string())))
+    }
+
+    pub async fn read_datagram(&self) -> Result<Bytes> {
+        self.connection
+            .read_datagram()
+            .await
+            .map_err(|e| anyhow::Error::new(TransportError::Quic(e.to_string())))
+    }
+
+    pub fn max_datagram_size(&self) -> Option<usize> {
+        self.connection.max_datagram_size()
+    }
+
     pub fn remote_addr(&self) -> SocketAddr {
         self.connection.remote_address()
     }
@@ -286,11 +330,42 @@ impl SctConnection {
     }
 }
 
-fn known_hosts_path() -> PathBuf {
+fn sct_home_dir() -> PathBuf {
+    if let Ok(dir) = std::env::var("SCT_CERT_DIR") {
+        return PathBuf::from(dir);
+    }
     let mut dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
     dir.push(".sct");
-    dir.push("known_hosts");
     dir
+}
+
+fn known_hosts_path() -> PathBuf {
+    sct_home_dir().join("known_hosts")
+}
+
+fn load_or_create_server_identity() -> Result<(CertificateDer<'static>, PrivatePkcs8KeyDer<'static>)>
+{
+    let dir = sct_home_dir();
+    fs::create_dir_all(&dir).context("create ~/.sct")?;
+    let cert_path = dir.join("server.crt.der");
+    let key_path = dir.join("server.key.der");
+    if cert_path.exists() && key_path.exists() {
+        let cert =
+            CertificateDer::from(fs::read(&cert_path).context("read persisted server cert")?);
+        let key =
+            PrivatePkcs8KeyDer::from(fs::read(&key_path).context("read persisted server key")?);
+        return Ok((cert, key));
+    }
+    let cert = generate_simple_self_signed(vec!["localhost".to_string()])?;
+    let cert_der: CertificateDer<'static> = CertificateDer::from(cert.cert.der().to_vec());
+    let key_der = PrivatePkcs8KeyDer::from(cert.signing_key.serialize_der());
+    fs::write(&cert_path, cert_der.as_ref()).context("persist server cert")?;
+    fs::write(&key_path, key_der.secret_pkcs8_der()).context("persist server key")?;
+    warn!(
+        "generated SPARQ server identity at {} (TOFU pin is stable across restarts)",
+        cert_path.display()
+    );
+    Ok((cert_der, key_der))
 }
 
 fn load_known_hosts(

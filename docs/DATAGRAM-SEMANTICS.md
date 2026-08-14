@@ -14,7 +14,9 @@
 - Preserve state-transition events wherever possible.
 - Derive final workflow state from durable state logic, not transient event count.
 - Oversized payloads are summarized/truncated to fit datagram size limits.
-- Progress events may be dropped first under rate limiting.
+- Progress events may be dropped first when the test hook
+  `SC_DGRAM_PROGRESS_DROP_EVERY` is set (default **0**, disabled). This is not a
+  production rate limiter.
 
 ## Compatibility with transparency contract
 

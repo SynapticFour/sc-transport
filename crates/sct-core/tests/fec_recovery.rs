@@ -7,7 +7,7 @@ use sct_proto::ChecksumAlg;
 
 const CHUNK_SIZE: usize = 64 * 1024;
 
-/// Matches [`FileSender::build_chunk_payload_at`] field layout (offset, fec_group, checksum).
+/// Matches [`FileSender`] framed-chunk layout (offset, fec_group, checksum).
 fn framed_chunk_sender_style(
     index: u64,
     body: &[u8],

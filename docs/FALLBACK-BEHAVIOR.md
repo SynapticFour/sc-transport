@@ -17,7 +17,8 @@ Fallback protects correctness over transport preference.
 
 ## Signaling
 
-- Emit a `TransportFallback` telemetry event when fallback occurs.
+- Emit a `TransportFallback` telemetry event when fallback occurs (in-process
+  SSE fan-out, not HTTP).
 - Increment `fallback_count` in transport metrics.
 - Log fallback reason and observed conditions.
 

@@ -31,6 +31,7 @@ enum Command {
         parallel: usize,
         #[arg(long)]
         bandwidth: Option<u64>,
+        /// Honor receiver ManifestAck bitmap/hashes. Pair with `sct recv --resume`.
         #[arg(long, default_value_t = false)]
         resume: bool,
         #[arg(long, default_value_t = true)]
@@ -49,6 +50,7 @@ enum Command {
         once: bool,
         #[arg(long, default_value_t = false)]
         daemon: bool,
+        /// Persist partial files and advertise received chunk hashes on ManifestAck.
         #[arg(long, default_value_t = false)]
         resume: bool,
         #[arg(long, default_value_t = true)]
@@ -99,6 +101,12 @@ async fn main() -> Result<()> {
             json: as_json,
             quiet,
         } => {
+            if file_or_dir.is_dir() {
+                anyhow::bail!(
+                    "sct send transfers a single file; got directory {}",
+                    file_or_dir.display()
+                );
+            }
             let parsed = parse_endpoint(&endpoint)?;
             let bar = ProgressBar::new_spinner();
             if !quiet && !as_json {
@@ -135,9 +143,7 @@ async fn main() -> Result<()> {
                     ..Default::default()
                 },
             );
-            if resume {
-                eprintln!("resume requested: sender will use receiver bitmap acknowledgements");
-            }
+            let _ = resume; // sender always honors ManifestAck; pair with `sct recv --resume`
             sender.send(&file_or_dir).await?;
             if !quiet && !as_json {
                 bar.finish_with_message("transfer completed");
@@ -275,6 +281,9 @@ async fn main() -> Result<()> {
                     profile.loss_rate
                 );
             }
+            eprintln!(
+                "note: `sct probe` uses SPARQ CongestionOracle (QUIC RTT/cwnd), not the telemetry crate sc-transport-probe::NetworkProbe"
+            );
         }
     }
     Ok(())

@@ -25,7 +25,7 @@ pub use predictive::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PacketId(pub u64);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct PacketMeta {
     pub id: u64,
     pub priority: u8,
@@ -114,6 +114,8 @@ pub trait TransportPath: Send + Sync {
     fn estimated_bandwidth(&self) -> f64;
     fn loss_rate(&self) -> f64;
     fn path_kind(&self) -> PathKind;
+    /// Push a live Quinn sample into the experimental scheduler (not FASP).
+    fn update_stats(&self, rtt: Duration, bandwidth_bps: f64, loss_rate: f64);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -186,6 +188,10 @@ impl TransportPath for QuicStreamPath {
     fn path_kind(&self) -> PathKind {
         PathKind::Stream
     }
+
+    fn update_stats(&self, rtt: Duration, bandwidth_bps: f64, loss_rate: f64) {
+        QuicStreamPath::update_stats(self, rtt, bandwidth_bps, loss_rate);
+    }
 }
 
 pub struct QuicDatagramPath {
@@ -234,6 +240,10 @@ impl TransportPath for QuicDatagramPath {
 
     fn path_kind(&self) -> PathKind {
         PathKind::Datagram
+    }
+
+    fn update_stats(&self, rtt: Duration, bandwidth_bps: f64, loss_rate: f64) {
+        QuicDatagramPath::update_stats(self, rtt, bandwidth_bps, loss_rate);
     }
 }
 
@@ -327,7 +337,7 @@ impl MultiPathScheduler {
     #[allow(clippy::too_many_arguments)] // Send path bundles FEC, congestion, and block context.
     pub fn distribute_and_send(
         &mut self,
-        packet: Packet,
+        mut packet: Packet,
         block: &Block,
         tail_penalty: f64,
         fec_parity_ratio: f64,
@@ -406,7 +416,10 @@ impl MultiPathScheduler {
             .map(|(_, u)| *u)
             .unwrap_or(utility_primary);
         self.last_primary_utility = utility_primary_raw.max(1e-9);
-        self.paths[primary_idx].send(packet.clone());
+        if packet.meta.priority < 200 {
+            let rtt = self.paths[primary_idx].estimated_rtt();
+            packet.meta.deadline = Some(Instant::now() + rtt + Duration::from_millis(200));
+        }
         let pacing_deficit = (2.0 * 1500.0 - self.tokens).max(0.0);
         {
             let bw = self.paths[primary_idx].estimated_bandwidth().max(1.0);
@@ -516,7 +529,7 @@ impl MultiPathScheduler {
                 .clamp(1.0, db) as usize
         };
 
-        let should_duplicate = !dup_suppressed
+        let mut should_duplicate = !dup_suppressed
             && !low_cost_fast
             && !high_fec_large_payload
             && !deadline_only_large
@@ -529,23 +542,24 @@ impl MultiPathScheduler {
 
         if should_duplicate && !fec_sufficient && self.in_flight_duplicates < dynamic_dup_budget {
             if let Some(redundant_idx) = secondary_idx {
-                let primary_kind = self.paths[primary_idx].path_kind();
                 let redundant_kind = self.paths[redundant_idx].path_kind();
-                if primary_kind == PathKind::Datagram
-                    && redundant_kind == PathKind::Datagram
-                    && is_large
+                if (redundant_kind == PathKind::Datagram && is_large)
+                    || (redundant_kind == PathKind::Datagram
+                        && is_medium
+                        && (!medium_unlock || utility_primary < 0.05))
                 {
-                    return;
+                    should_duplicate = false;
                 }
-                if redundant_kind == PathKind::Datagram && is_large {
-                    return;
-                }
-                if redundant_kind == PathKind::Datagram
-                    && is_medium
-                    && (!medium_unlock || utility_primary < 0.05)
-                {
-                    return;
-                }
+            } else {
+                should_duplicate = false;
+            }
+        } else {
+            should_duplicate = false;
+        }
+
+        if should_duplicate {
+            if let Some(redundant_idx) = secondary_idx {
+                self.paths[primary_idx].send(packet.clone());
                 self.paths[redundant_idx].send(packet);
                 self.in_flight_duplicates += 1;
                 let bw2 = self.paths[redundant_idx].estimated_bandwidth().max(1.0);
@@ -564,12 +578,22 @@ impl MultiPathScheduler {
                 self.optimization_kpi.duplicate_utility_sum += u_dup;
                 self.optimization_kpi.correlation_penalty_area +=
                     self.path_correlation.rho(primary_idx, redundant_idx) * pkt_sz as f64;
+            } else {
+                self.paths[primary_idx].send(packet);
             }
+        } else {
+            self.paths[primary_idx].send(packet);
         }
     }
 
     pub fn mark_reconstructable(&mut self, fec_group: u64) {
         self.known_reconstructable.insert(fec_group);
+    }
+
+    pub fn apply_network_sample(&self, rtt: Duration, bandwidth_bps: f64, loss_rate: f64) {
+        for p in &self.paths {
+            p.update_stats(rtt, bandwidth_bps, loss_rate);
+        }
     }
 
     pub fn on_feedback_tick(&mut self) {
@@ -648,7 +672,7 @@ fn frame_fec_wire_shard(
     is_parity: bool,
     parity_index: usize,
     fec_group: u64,
-) -> Vec<u8> {
+) -> anyhow::Result<Vec<u8>> {
     let desc = ChunkDescriptor {
         index,
         offset,
@@ -660,12 +684,12 @@ fn frame_fec_wire_shard(
         parity_index,
         fec_group,
     };
-    let desc_bytes = encode(&desc).expect("chunk descriptor encode");
+    let desc_bytes = encode(&desc)?;
     let mut out = Vec::with_capacity(4 + desc_bytes.len() + raw_shard.len());
     out.extend_from_slice(&(desc_bytes.len() as u32).to_be_bytes());
     out.extend_from_slice(&desc_bytes);
     out.extend_from_slice(raw_shard);
-    out
+    Ok(out)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -715,7 +739,7 @@ impl FecEncoder {
         let seq_base = block.last().map(|p| p.seq).unwrap_or(0);
         for i in 0..p {
             let row = &shards[n + i];
-            let framed = frame_fec_wire_shard(
+            let framed = match frame_fec_wire_shard(
                 u64::MAX
                     .saturating_sub(fec_group.saturating_mul((p + 16) as u64))
                     .saturating_sub(i as u64),
@@ -724,17 +748,21 @@ impl FecEncoder {
                 true,
                 i,
                 fec_group,
-            );
+            ) {
+                Ok(f) => f,
+                Err(_) => return data.to_vec(),
+            };
+            let framed_len = framed.len();
             out.push(Packet {
                 id: PacketId(u64::MAX - i as u64),
                 seq: seq_base.saturating_add(1 + i as u64),
-                payload: framed.clone(),
+                payload: framed,
                 is_parity: true,
                 meta: PacketMeta {
                     id: u64::MAX - i as u64,
                     priority: max_pri,
                     deadline,
-                    size: framed.len(),
+                    size: framed_len,
                 },
                 fec_group,
                 reconstructable: false,
@@ -1428,8 +1456,7 @@ impl AutopilotRuntime {
             self.metrics.straggler_count = s.straggler_count;
             self.metrics.canceled_redundant_sends = s.canceled_redundant_sends;
         }
-        let (tx_read, mut rx_read) = mpsc::channel::<Packet>(1024);
-        let (tx_chunk, mut rx_chunk) = mpsc::channel::<Packet>(1024);
+        let (tx_read, mut rx_chunk) = mpsc::channel::<Packet>(1024);
         let (tx_encode, mut rx_encode) = mpsc::channel::<Packet>(1024);
 
         let mut prioritized = input_packets;
@@ -1462,14 +1489,6 @@ impl AutopilotRuntime {
         tokio::spawn(async move {
             for p in prioritized {
                 let _ = tx_read.send(p).await;
-            }
-        });
-
-        let mode = self.strategy.mode;
-        tokio::spawn(async move {
-            while let Some(p) = rx_read.recv().await {
-                let _ = mode;
-                let _ = tx_chunk.send(p).await;
             }
         });
 
@@ -1542,18 +1561,31 @@ impl AutopilotRuntime {
             let rate = self.cc.target_send_rate();
             let block_ctx =
                 self.block_context_for_schedule(&pkt, self.fec.data_shards, self.fec.parity_shards);
+            let is_parity = pkt.is_parity;
+            let fec_group = pkt.fec_group;
+            let reconstructable = pkt.reconstructable;
             // Rolling window of recent data packets on the wire (parity uses the same framing).
-            if !pkt.is_parity {
+            // Payload is dropped: estimate_completion only reads fec_group.
+            if !is_parity {
                 if inflight_window.len() >= MAX_INFLIGHT_TRACK {
                     inflight_window.pop_front();
                 }
-                inflight_window.push_back(pkt.clone());
+                inflight_window.push_back(Packet {
+                    id: pkt.id,
+                    seq: pkt.seq,
+                    payload: Vec::new(),
+                    is_parity: pkt.is_parity,
+                    meta: pkt.meta,
+                    fec_group: pkt.fec_group,
+                    reconstructable: pkt.reconstructable,
+                    parity_index: pkt.parity_index,
+                });
             }
             let inflight_wire: &[Packet] = inflight_window.make_contiguous();
             let tail_penalty =
                 self.metrics.p95_completion.as_secs_f64() * stab.ranking_pressure_scale;
             self.scheduler.distribute_and_send(
-                pkt.clone(),
+                pkt,
                 &block_ctx,
                 tail_penalty,
                 self.fec.parity_ratio(),
@@ -1565,13 +1597,13 @@ impl AutopilotRuntime {
                 &stab,
                 &mut self.stabilizer.control,
             );
-            if !pkt.is_parity {
+            if !is_parity {
                 if let Ok(mut m) = self.block_data_shards_sent.lock() {
-                    *m.entry(pkt.fec_group).or_insert(0) += 1;
+                    *m.entry(fec_group).or_insert(0) += 1;
                 }
             }
-            if pkt.reconstructable {
-                self.scheduler.mark_reconstructable(pkt.fec_group);
+            if reconstructable {
+                self.scheduler.mark_reconstructable(fec_group);
             }
             self.scheduler.on_feedback_tick();
             completed.push(start.elapsed().as_secs_f64());

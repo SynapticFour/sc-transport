@@ -18,7 +18,7 @@ make destroy # stop; remove volumes
 | Crate | Transport | Status | When to use |
 |-------|-----------|--------|-------------|
 | sc-transport-core | Trait + shared transport contract | **Stable** | Downstream runtime interface and shared types. |
-| sc-transport-sse | HTTP SSE (Server-Sent Events) | **Stable** | Default production transport implementation. |
+| sc-transport-sse | In-process event fan-out (not HTTP SSE) | **Stable** | Default production transport implementation. |
 | sc-transport-quic | QUIC reliable streams | **Optional** | When 0-RTT reconnection or no HoL blocking matters. |
 | sc-transport-datagrams | QUIC unreliable datagrams | **Experimental (0.x)** | Research only. See [LIMITATIONS](docs/LIMITATIONS.md). |
 
@@ -36,9 +36,9 @@ scientific data transfer foundations:
 | `sct-daemon` | REST daemon for queued transfers + recovery | Bootstrap |
 
 Design philosophy:
-- Build on open QUIC (IETF RFC 9000) rather than bespoke UDP protocol mechanics.
+- Experimental SPARQ aims at Aspera-class WAN bulk over **IETF QUIC** (RFC 9000 streams + RFC 9221 datagrams), not FASP.
+- Scientific BBR, hybrid CC, RS FEC, and speculative stream+datagram scheduling are intentional research knobs.
 - Keep control + data semantics explicit and observable in protocol types.
-- Start with a compile-safe MVP, then harden with WAN tuning and profiling phases.
 
 Quick CLI examples:
 
@@ -113,6 +113,8 @@ make profile-quic-good-large   # optional performance regression check
 The daemon provides transfer queueing, priority updates, cancellation, and restart recovery.
 
 - Daemon API: `POST /v1/transfer`, `GET/PATCH/DELETE /v1/transfer/{id}`, `GET /v1/transfers`
+- Optional `Authorization: Bearer` when `auth.api_token` or `SCT_DAEMON_API_TOKEN` is set
+- Destinations are jailed under `server.output_base_dir` (absolute client paths are not used as-is)
 - Transfer modes:
   - push: `source=file://...` and `destination=sct://host:port`
   - receive: `source=sct://...` and `destination=<output-dir>`
@@ -171,4 +173,3 @@ Questions or security concerns: [contact@synapticfour.com](mailto:contact@synapt
 ---
 
 Contact: [contact@synapticfour.com](mailto:contact@synapticfour.com)
-

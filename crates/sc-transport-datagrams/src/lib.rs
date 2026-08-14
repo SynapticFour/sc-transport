@@ -49,6 +49,8 @@ pub struct QuicDatagramTransport {
     loss_window_size: usize,
     max_datagram_size: usize,
     preferred_datagram_size: usize,
+    /// 0 disables. Env `SC_DGRAM_PROGRESS_DROP_EVERY` (test hook, not a production limiter).
+    progress_drop_every: u64,
     #[cfg(feature = "quic-datagrams")]
     config: QuicDatagramConfig,
     #[cfg(feature = "quic-datagrams")]
@@ -86,6 +88,9 @@ impl QuicDatagramTransport {
             .min(max_datagram_size);
         let fallback_threshold =
             Self::env_f64("SC_DGRAM_FALLBACK_THRESHOLD").unwrap_or(config.loss_fallback_threshold);
+        let progress_drop_every = Self::env_usize("SC_DGRAM_PROGRESS_DROP_EVERY")
+            .map(|n| n as u64)
+            .unwrap_or(0);
         Self {
             fallback: HttpSseTransport::new(),
             sent: Arc::new(AtomicU64::new(0)),
@@ -96,6 +101,7 @@ impl QuicDatagramTransport {
             loss_window_size: config.loss_window_size,
             max_datagram_size,
             preferred_datagram_size,
+            progress_drop_every,
             #[cfg(feature = "quic-datagrams")]
             config,
             #[cfg(feature = "quic-datagrams")]
@@ -112,8 +118,16 @@ impl QuicDatagramTransport {
     }
 
     fn should_drop_for_rate_limit(&self, event: &TelemetryEvent) -> bool {
-        matches!(event.event_type, EventType::Progress)
-            && self.sent.load(Ordering::Relaxed) % 100 == 99
+        let n = self.progress_drop_every;
+        n > 0
+            && matches!(event.event_type, EventType::Progress)
+            && self.sent.load(Ordering::Relaxed) % n == n.saturating_sub(1)
+    }
+
+    #[cfg(test)]
+    pub fn with_progress_drop_every(mut self, n: u64) -> Self {
+        self.progress_drop_every = n;
+        self
     }
 
     fn should_force_fallback(&self, event: &TelemetryEvent) -> bool {
@@ -225,19 +239,31 @@ impl QuicDatagramTransport {
                     }
                     fn verify_tls12_signature(
                         &self,
-                        _message: &[u8],
-                        _cert: &CertificateDer<'_>,
-                        _dss: &DigitallySignedStruct,
+                        message: &[u8],
+                        cert: &CertificateDer<'_>,
+                        dss: &DigitallySignedStruct,
                     ) -> Result<HandshakeSignatureValid, rustls::Error> {
-                        Ok(HandshakeSignatureValid::assertion())
+                        rustls::crypto::verify_tls12_signature(
+                            message,
+                            cert,
+                            dss,
+                            &rustls::crypto::ring::default_provider()
+                                .signature_verification_algorithms,
+                        )
                     }
                     fn verify_tls13_signature(
                         &self,
-                        _message: &[u8],
-                        _cert: &CertificateDer<'_>,
-                        _dss: &DigitallySignedStruct,
+                        message: &[u8],
+                        cert: &CertificateDer<'_>,
+                        dss: &DigitallySignedStruct,
                     ) -> Result<HandshakeSignatureValid, rustls::Error> {
-                        Ok(HandshakeSignatureValid::assertion())
+                        rustls::crypto::verify_tls13_signature(
+                            message,
+                            cert,
+                            dss,
+                            &rustls::crypto::ring::default_provider()
+                                .signature_verification_algorithms,
+                        )
                     }
                     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
                         vec![
@@ -270,8 +296,13 @@ impl QuicDatagramTransport {
                     .map_err(|_| TransportError::Unavailable("endpoint set race".to_string()))?;
                 let mut endpoint = endpoint;
                 endpoint.set_default_client_config(client_config);
+                let server_name = if self.config.server_addr.ip().is_loopback() {
+                    "localhost".to_string()
+                } else {
+                    self.config.server_addr.ip().to_string()
+                };
                 let connecting = endpoint
-                    .connect(self.config.server_addr, "localhost")
+                    .connect(self.config.server_addr, &server_name)
                     .map_err(|e| TransportError::QuicError(e.to_string()))?;
                 let conn = tokio::time::timeout(std::time::Duration::from_secs(5), connecting)
                     .await
@@ -392,6 +423,20 @@ impl QuicDatagramTransport {
     }
 }
 
+fn fallback_event(run_id: &str, reason: &str) -> TelemetryEvent {
+    let timestamp_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    TelemetryEvent {
+        run_id: run_id.to_string(),
+        task_id: None,
+        event_type: EventType::TransportFallback,
+        timestamp_ms,
+        payload: serde_json::json!({ "reason": reason }),
+    }
+}
+
 #[async_trait]
 impl Transport for QuicDatagramTransport {
     async fn send_event(
@@ -404,9 +449,14 @@ impl Transport for QuicDatagramTransport {
         if self.should_force_fallback(&event) {
             self.record_loss_sample(false).await;
             self.fallback_count.fetch_add(1, Ordering::Relaxed);
+            let reason = "forced_by_event_payload";
+            let _ = self
+                .fallback
+                .send_event(run_id, fallback_event(run_id, reason))
+                .await;
             let _ = self.fallback.send_event(run_id, event).await;
             return Ok(DeliveryStatus::FellBack {
-                reason: "forced_by_event_payload".to_string(),
+                reason: reason.to_string(),
             });
         }
 
@@ -434,34 +484,26 @@ impl Transport for QuicDatagramTransport {
             return Ok(DeliveryStatus::Dropped);
         }
 
-        let wire_size = match rmp_serde::to_vec_named(&event) {
-            Ok(v) => v.len(),
+        let (bytes, _truncated) = match self.serialize_event_for_datagram(&event) {
+            Ok(v) => v,
             Err(_) => {
                 self.record_loss_sample(false).await;
                 self.dropped.fetch_add(1, Ordering::Relaxed);
                 return Ok(DeliveryStatus::Dropped);
             }
         };
-        if wire_size > self.preferred_datagram_size {
+        if bytes.len() > self.preferred_datagram_size {
             self.fallback_count.fetch_add(1, Ordering::Relaxed);
+            let reason = "payload_over_preferred_datagram_size";
+            let _ = self
+                .fallback
+                .send_event(run_id, fallback_event(run_id, reason))
+                .await;
             let _ = self.fallback.send_event(run_id, event).await;
             return Ok(DeliveryStatus::FellBack {
-                reason: "payload_over_preferred_datagram_size".to_string(),
+                reason: reason.to_string(),
             });
         }
-
-        let (bytes, _truncated) = match self.serialize_event_for_datagram(&event) {
-            Ok(v) => v,
-            Err(_) => {
-                self.record_loss_sample(false).await;
-                self.dropped.fetch_add(1, Ordering::Relaxed);
-                self.fallback_count.fetch_add(1, Ordering::Relaxed);
-                let _ = self.fallback.send_event(run_id, event).await;
-                return Ok(DeliveryStatus::FellBack {
-                    reason: "datagram_serialization_or_size_failure".to_string(),
-                });
-            }
-        };
 
         #[cfg(feature = "quic-datagrams")]
         {
@@ -473,9 +515,14 @@ impl Transport for QuicDatagramTransport {
                 }
                 Err(TransportError::FallbackRequired) => {
                     // Policy routing (MTU / peer caps / extension): SSE, not a transport failure.
+                    let reason = "datagram_policy_route_to_sse";
+                    let _ = self
+                        .fallback
+                        .send_event(run_id, fallback_event(run_id, reason))
+                        .await;
                     let _ = self.fallback.send_event(run_id, event).await;
                     return Ok(DeliveryStatus::FellBack {
-                        reason: "datagram_policy_route_to_sse".to_string(),
+                        reason: reason.to_string(),
                     });
                 }
                 Err(ref e) => {
@@ -561,7 +608,7 @@ mod tests {
 
     #[tokio::test]
     async fn drops_some_progress_events_by_rate_limit() {
-        let t = QuicDatagramTransport::new();
+        let t = QuicDatagramTransport::new().with_progress_drop_every(100);
         let run_id = "run-d";
         let mut stream = t.subscribe(run_id).await.expect("subscribe");
 
@@ -625,6 +672,24 @@ mod tests {
         }
     }
 
+    async fn collect_non_fallback(
+        stream: &mut (impl futures::Stream<Item = Result<TelemetryEvent, TransportError>> + Unpin),
+        want: usize,
+    ) -> Vec<TelemetryEvent> {
+        let mut out = Vec::new();
+        while out.len() < want {
+            match timeout(Duration::from_millis(200), stream.next()).await {
+                Ok(Some(Ok(event))) => {
+                    if !matches!(event.event_type, EventType::TransportFallback) {
+                        out.push(event);
+                    }
+                }
+                _ => break,
+            }
+        }
+        out
+    }
+
     #[tokio::test]
     async fn transparency_final_state_matches_across_transports() {
         let run_id = "run-transparency";
@@ -644,19 +709,9 @@ mod tests {
         send_scripted_events(&quic, run_id).await;
         send_scripted_events(&datagram, run_id).await;
 
-        let mut sse_events = Vec::new();
-        let mut quic_events = Vec::new();
-        let mut datagram_events = Vec::new();
-        for _ in 0..6 {
-            sse_events.push(sse_stream.next().await.expect("sse item").expect("ok"));
-            quic_events.push(quic_stream.next().await.expect("quic item").expect("ok"));
-            // Datagrams may drop; collect what arrives quickly.
-            if let Ok(Some(Ok(event))) =
-                timeout(Duration::from_millis(20), datagram_stream.next()).await
-            {
-                datagram_events.push(event);
-            }
-        }
+        let sse_events = collect_non_fallback(&mut sse_stream, 6).await;
+        let quic_events = collect_non_fallback(&mut quic_stream, 6).await;
+        let datagram_events = collect_non_fallback(&mut datagram_stream, 6).await;
 
         assert_eq!(final_state(&sse_events), "completed");
         assert_eq!(final_state(&quic_events), "completed");

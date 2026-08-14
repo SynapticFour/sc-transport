@@ -9,6 +9,8 @@
 ## Linux
 
 - Ensure Generic Segmentation Offload (GSO) is available/enabled where possible.
+  SPARQ does not reimplement segmentation: Quinn/quinn-udp uses kernel GSO/GRO on Linux.
+  `TransportConfig.enable_gso` is an operator hint in logs, not a second offload protocol.
 - Validate UDP buffer limits (`net.core.rmem_max`, `net.core.wmem_max`).
 - Use `tc netem` only for controlled experiments, not normal benchmarking.
 
@@ -44,7 +46,11 @@ make profile-quic-good-large
 
 ## Pre-transfer path probing
 
-Before initiating a large batch transfer, run `NetworkProbe::measure()` to
-classify the link. Feed `NetworkProfile::suggested_config` into `BatchSender`
-and `ScientificCongestionController` to pre-configure for your actual path
-instead of relying on slow-start discovery.
+SPARQ CLI `sct probe` uses `CongestionOracle` (QUIC RTT/cwnd samples on a SPARQ
+endpoint). The telemetry crate `sc-transport-probe::NetworkProbe` is a separate
+path profiler for event transports; it is not wired into `sct probe`.
+
+Before a large telemetry batch, `NetworkProbe::measure()` can classify a link
+and feed `NetworkProfile::suggested_config` into `BatchSender`. SPARQ file
+transfer instead samples Quinn RTT/cwnd into Scientific BBR + the hybrid
+scheduler on every send batch.

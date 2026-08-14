@@ -5,7 +5,8 @@ pub use batch::{BatchSendResult, BatchSender};
 
 use async_trait::async_trait;
 use sc_transport_core::{
-    DeliveryStatus, EventStream, TelemetryEvent, Transport, TransportError, TransportMetrics,
+    DeliveryStatus, EventStream, EventType, TelemetryEvent, Transport, TransportError,
+    TransportMetrics,
 };
 use sc_transport_sse::HttpSseTransport;
 #[cfg(feature = "quic-streams")]
@@ -19,6 +20,7 @@ use tokio::sync::Mutex;
 
 pub const LENGTH_PREFIX_BYTES: usize = 4;
 const BATCH_MAGIC: &[u8; 4] = b"SCB1";
+const MAX_TELEMETRY_FRAME_BYTES: usize = 64 * 1024 * 1024;
 
 /// Reliable QUIC streams transport.
 ///
@@ -116,6 +118,11 @@ impl QuicStreamTransport {
             return Err(TransportError::Unavailable("frame too small".to_string()));
         }
         let declared_len = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]) as usize;
+        if declared_len == 0 || declared_len > MAX_TELEMETRY_FRAME_BYTES {
+            return Err(TransportError::Unavailable(
+                "frame length out of range".to_string(),
+            ));
+        }
         let payload = &buf[LENGTH_PREFIX_BYTES..];
         if payload.len() != declared_len {
             return Err(TransportError::Unavailable(
@@ -229,6 +236,11 @@ impl QuicStreamTransport {
             .await
             .map_err(|e| TransportError::Unavailable(e.to_string()))?;
         let payload_len = u32::from_be_bytes(len_buf) as usize;
+        if payload_len == 0 || payload_len > MAX_TELEMETRY_FRAME_BYTES {
+            return Err(TransportError::Unavailable(format!(
+                "telemetry frame length {payload_len} outside 1..={MAX_TELEMETRY_FRAME_BYTES}"
+            )));
+        }
         let mut payload = vec![0_u8; payload_len];
         reader
             .read_exact(&mut payload)
@@ -250,6 +262,11 @@ impl QuicStreamTransport {
             .await
             .map_err(|e| TransportError::Unavailable(e.to_string()))?;
         let payload_len = u32::from_be_bytes(len_buf) as usize;
+        if payload_len == 0 || payload_len > MAX_TELEMETRY_FRAME_BYTES {
+            return Err(TransportError::Unavailable(format!(
+                "telemetry frame length {payload_len} outside 1..={MAX_TELEMETRY_FRAME_BYTES}"
+            )));
+        }
         let mut payload = vec![0_u8; payload_len];
         reader
             .read_exact(&mut payload)
@@ -387,19 +404,29 @@ impl QuicStreamTransport {
             }
             fn verify_tls12_signature(
                 &self,
-                _message: &[u8],
-                _cert: &CertificateDer<'_>,
-                _dss: &DigitallySignedStruct,
+                message: &[u8],
+                cert: &CertificateDer<'_>,
+                dss: &DigitallySignedStruct,
             ) -> Result<HandshakeSignatureValid, rustls::Error> {
-                Ok(HandshakeSignatureValid::assertion())
+                rustls::crypto::verify_tls12_signature(
+                    message,
+                    cert,
+                    dss,
+                    &rustls::crypto::ring::default_provider().signature_verification_algorithms,
+                )
             }
             fn verify_tls13_signature(
                 &self,
-                _message: &[u8],
-                _cert: &CertificateDer<'_>,
-                _dss: &DigitallySignedStruct,
+                message: &[u8],
+                cert: &CertificateDer<'_>,
+                dss: &DigitallySignedStruct,
             ) -> Result<HandshakeSignatureValid, rustls::Error> {
-                Ok(HandshakeSignatureValid::assertion())
+                rustls::crypto::verify_tls13_signature(
+                    message,
+                    cert,
+                    dss,
+                    &rustls::crypto::ring::default_provider().signature_verification_algorithms,
+                )
             }
             fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
                 vec![
@@ -630,6 +657,20 @@ fn allow_insecure_quic_override() -> bool {
     }
 }
 
+fn fallback_event(run_id: &str, reason: &str) -> TelemetryEvent {
+    let timestamp_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    TelemetryEvent {
+        run_id: run_id.to_string(),
+        task_id: None,
+        event_type: EventType::TransportFallback,
+        timestamp_ms,
+        payload: serde_json::json!({ "reason": reason }),
+    }
+}
+
 /// Mirror each successful QUIC send into the in-process SSE fan-out (tests/subscribers).
 #[cfg(feature = "quic-streams")]
 fn mirror_sse_enabled() -> bool {
@@ -651,6 +692,11 @@ impl Transport for QuicStreamTransport {
         self.events_sent.fetch_add(1, Ordering::Relaxed);
         if !Self::quic_streams_enabled() {
             self.fallback_count.fetch_add(1, Ordering::Relaxed);
+            let reason = "quic_streams_feature_disabled";
+            let _ = self
+                .fallback
+                .send_event(run_id, fallback_event(run_id, reason))
+                .await;
             match self.fallback.send_event(run_id, event).await {
                 Ok(DeliveryStatus::Dropped) => {
                     self.events_dropped.fetch_add(1, Ordering::Relaxed);
@@ -669,8 +715,6 @@ impl Transport for QuicStreamTransport {
 
         #[cfg(feature = "quic-streams")]
         {
-            // Validate stream framing before network write.
-            let _ = Self::frame_event(&event)?;
             match self.send_event_over_quic(&event).await {
                 Ok(()) => {
                     self.events_delivered.fetch_add(1, Ordering::Relaxed);
@@ -681,6 +725,11 @@ impl Transport for QuicStreamTransport {
                 }
                 Err(err) => {
                     self.fallback_count.fetch_add(1, Ordering::Relaxed);
+                    let reason = format!("quic_stream_send_failed:{err}");
+                    let _ = self
+                        .fallback
+                        .send_event(run_id, fallback_event(run_id, &reason))
+                        .await;
                     match self.fallback.send_event(run_id, event).await {
                         Ok(DeliveryStatus::Dropped) => {
                             self.events_dropped.fetch_add(1, Ordering::Relaxed);
@@ -692,9 +741,7 @@ impl Transport for QuicStreamTransport {
                             self.events_dropped.fetch_add(1, Ordering::Relaxed);
                         }
                     }
-                    return Ok(DeliveryStatus::FellBack {
-                        reason: format!("quic_stream_send_failed:{err}"),
-                    });
+                    return Ok(DeliveryStatus::FellBack { reason });
                 }
             }
         }

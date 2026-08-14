@@ -18,7 +18,10 @@ struct Counters {
     active_subscribers: AtomicU64,
 }
 
-/// Stable SSE fan-out implementation backed by Tokio broadcast channels.
+/// Stable in-process SSE fan-out backed by Tokio broadcast channels.
+///
+/// This is **not** HTTP Server-Sent Events. Subscribers in the same process
+/// receive `TelemetryEvent` values over a channel; there is no HTTP `/sse` endpoint.
 pub struct HttpSseTransport {
     channels: Arc<RwLock<HashMap<String, broadcast::Sender<TelemetryEvent>>>>,
     counters: Arc<Counters>,
@@ -57,9 +60,6 @@ impl Transport for HttpSseTransport {
         run_id: &str,
         event: TelemetryEvent,
     ) -> Result<DeliveryStatus, TransportError> {
-        let _encoded = rmp_serde::to_vec_named(&event)
-            .map_err(|e| TransportError::Serialization(e.to_string()))?;
-
         let tx = self.channel_for_run(run_id).await;
         self.counters.events_sent.fetch_add(1, Ordering::Relaxed);
         match tx.send(event) {

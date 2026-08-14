@@ -1,6 +1,8 @@
 use anyhow::Result;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, Query, Request, State};
 use axum::http::StatusCode;
+use axum::middleware::{self, Next};
+use axum::response::Response;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use sct_core::protocol::CompressionType;
@@ -12,12 +14,12 @@ use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 use std::net::IpAddr;
 use std::net::SocketAddr;
-use std::path::{Path as StdPath, PathBuf};
+use std::path::{Component, Path as StdPath, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::io::AsyncWriteExt;
-use tokio::sync::{Mutex, Semaphore};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::{watch, Mutex, Semaphore};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,6 +51,8 @@ struct TransferConfig {
 struct AuthConfig {
     mode: String,
     known_hosts_file: String,
+    #[serde(default)]
+    api_token: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,6 +85,7 @@ impl Default for SctConfig {
             auth: AuthConfig {
                 mode: "tofu".to_string(),
                 known_hosts_file: "~/.sct/known_hosts".to_string(),
+                api_token: String::new(),
             },
             metrics: MetricsConfig {
                 enabled: true,
@@ -160,6 +165,7 @@ struct AppState {
     sequence: Arc<Mutex<u64>>,
     state_path: Arc<PathBuf>,
     events_path: Arc<PathBuf>,
+    cancels: Arc<Mutex<HashMap<Uuid, watch::Sender<bool>>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -181,11 +187,15 @@ struct TransferEventRecord {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cfg = load_config("sct.toml").unwrap_or_default();
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::new(
-            cfg.logging.level.clone(),
-        ))
-        .init();
+    let env_filter = tracing_subscriber::EnvFilter::new(cfg.logging.level.clone());
+    if cfg.logging.format.eq_ignore_ascii_case("json") {
+        tracing_subscriber::fmt()
+            .json()
+            .with_env_filter(env_filter)
+            .init();
+    } else {
+        tracing_subscriber::fmt().with_env_filter(env_filter).init();
+    }
 
     let state = AppState {
         cfg: cfg.clone(),
@@ -195,10 +205,25 @@ async fn main() -> Result<()> {
         sequence: Arc::new(Mutex::new(0)),
         state_path: Arc::new(default_state_path()),
         events_path: Arc::new(default_events_path()),
+        cancels: Arc::new(Mutex::new(HashMap::new())),
     };
     load_records_into_state(&state).await?;
 
     spawn_scheduler(state.clone());
+    if cfg.metrics.enabled && cfg.metrics.prometheus_port != cfg.server.api_port {
+        let metrics_state = state.clone();
+        let prom_port = cfg.metrics.prometheus_port;
+        tokio::spawn(async move {
+            let app = Router::new()
+                .route("/metrics", get(metrics))
+                .route("/v1/metrics", get(metrics))
+                .with_state(metrics_state);
+            let addr = SocketAddr::from(([0, 0, 0, 0], prom_port));
+            if let Ok(listener) = tokio::net::TcpListener::bind(addr).await {
+                let _ = axum::serve(listener, app).await;
+            }
+        });
+    }
     let app = build_router(state);
     let addr = SocketAddr::from(([0, 0, 0, 0], cfg.server.api_port));
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -358,6 +383,40 @@ fn now_unix_ms() -> u128 {
         .unwrap_or(0)
 }
 
+fn effective_api_token(cfg: &SctConfig) -> Option<String> {
+    std::env::var("SCT_DAEMON_API_TOKEN")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            if cfg.auth.api_token.is_empty() {
+                None
+            } else {
+                Some(cfg.auth.api_token.clone())
+            }
+        })
+}
+
+async fn require_api_token(
+    State(state): State<AppState>,
+    req: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let Some(expected) = effective_api_token(&state.cfg) else {
+        return Ok(next.run(req).await);
+    };
+    let authorized = req
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .is_some_and(|got| got == expected);
+    if authorized {
+        Ok(next.run(req).await)
+    } else {
+        Err(StatusCode::UNAUTHORIZED)
+    }
+}
+
 fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/v1/transfer", post(submit_transfer))
@@ -368,6 +427,10 @@ fn build_router(state: AppState) -> Router {
                 .patch(update_priority),
         )
         .route("/v1/transfers", get(list_transfers))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_api_token,
+        ))
         .route("/v1/metrics", get(metrics))
         .route("/v1/health", get(health))
         .with_state(state)
@@ -390,13 +453,17 @@ async fn submit_transfer(
         progress_pct: 0.0,
         throughput_mbps: 0.0,
         bytes_transferred: 0,
-        bytes_total: 1024 * 1024 * 1024,
+        bytes_total: 0,
         error: None,
         created_at_unix_ms: now_unix_ms(),
         updated_at_unix_ms: now_unix_ms(),
         attempts: 0,
     };
     state.records.lock().await.insert(transfer_id, record);
+    {
+        let (tx, _rx) = watch::channel(false);
+        state.cancels.lock().await.insert(transfer_id, tx);
+    }
     enqueue_transfer(&state, transfer_id, priority).await;
     let _ = append_event(
         &state,
@@ -411,7 +478,7 @@ async fn submit_transfer(
             progress_pct: Some(0.0),
             throughput_mbps: Some(0.0),
             bytes_transferred: Some(0),
-            bytes_total: Some(1024 * 1024 * 1024),
+            bytes_total: Some(0),
             error: None,
         },
     )
@@ -449,6 +516,9 @@ async fn cancel_transfer(
     rec.status = TransferStatus::Cancelled;
     rec.updated_at_unix_ms = now_unix_ms();
     drop(records);
+    if let Some(tx) = state.cancels.lock().await.get(&id) {
+        let _ = tx.send(true);
+    }
     let _ = append_event(
         &state,
         TransferEventRecord {
@@ -479,11 +549,17 @@ async fn update_priority(
     let mut records = state.records.lock().await;
     let rec = records.get_mut(&id).ok_or(StatusCode::NOT_FOUND)?;
     rec.priority = req.priority.clamp(1, 10);
-    rec.status = TransferStatus::Queued;
     rec.updated_at_unix_ms = now_unix_ms();
     let new_priority = rec.priority;
+    let should_enqueue = rec.status != TransferStatus::Active;
+    if should_enqueue && rec.status != TransferStatus::Queued {
+        rec.status = TransferStatus::Queued;
+    }
+    let enqueue_status = rec.status.clone();
     drop(records);
-    enqueue_transfer(&state, id, new_priority).await;
+    if should_enqueue {
+        enqueue_transfer(&state, id, new_priority).await;
+    }
     let _ = append_event(
         &state,
         TransferEventRecord {
@@ -493,7 +569,7 @@ async fn update_priority(
             source: None,
             destination: None,
             priority: Some(new_priority),
-            status: Some(TransferStatus::Queued),
+            status: Some(enqueue_status),
             progress_pct: None,
             throughput_mbps: None,
             bytes_transferred: None,
@@ -558,10 +634,18 @@ fn spawn_scheduler(state: AppState) {
     tokio::spawn(async move {
         loop {
             let next = state.queue.lock().await.pop();
-            let Some((_prio, _seq, transfer_id)) = next else {
+            let Some((Reverse(heap_prio), _seq, transfer_id)) = next else {
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 continue;
             };
+            {
+                let records = state.records.lock().await;
+                match records.get(&transfer_id) {
+                    Some(rec)
+                        if rec.status == TransferStatus::Queued && rec.priority == heap_prio => {}
+                    _ => continue,
+                }
+            }
             let permit = state.semaphore.clone().acquire_owned().await;
             if permit.is_err() {
                 continue;
@@ -599,7 +683,21 @@ fn spawn_scheduler(state: AppState) {
                 )
                 .await;
                 let _ = persist_records(&state_clone).await;
-                let result = run_transfer_job(&state_clone, transfer_id).await;
+                let mut cancel_rx = {
+                    let mut g = state_clone.cancels.lock().await;
+                    match g.get(&transfer_id) {
+                        Some(tx) => tx.subscribe(),
+                        None => {
+                            let (tx, rx) = watch::channel(false);
+                            g.insert(transfer_id, tx);
+                            rx
+                        }
+                    }
+                };
+                let result = tokio::select! {
+                    r = run_transfer_job(&state_clone, transfer_id) => r,
+                    _ = cancel_rx.wait_for(|c| *c) => Ok(()),
+                };
                 if let Err(err) = result {
                     let mut records = state_clone.records.lock().await;
                     if let Some(rec) = records.get_mut(&transfer_id) {
@@ -715,7 +813,7 @@ async fn run_transfer_job(state: &AppState, transfer_id: Uuid) -> Result<()> {
         sender.send(&src).await?;
     } else if rec.source.starts_with("sct://") {
         // Receiver-side transfer path: daemon listens and accepts one incoming SCT transfer.
-        let out_dir = resolve_output_dir(&state.cfg, &rec.destination);
+        let out_dir = resolve_output_dir(&state.cfg, &rec.destination)?;
         tokio::fs::create_dir_all(&out_dir).await?;
         let endpoint = SctEndpoint::server(TransportConfig {
             bind_addr: SocketAddr::from(([0, 0, 0, 0], state.cfg.server.listen_port)),
@@ -765,72 +863,52 @@ async fn run_transfer_job(state: &AppState, transfer_id: Uuid) -> Result<()> {
             tokio::fs::create_dir_all(parent).await?;
         }
         let total = tokio::fs::metadata(&src).await?.len();
-        for step in 1..=5_u64 {
-            tokio::time::sleep(Duration::from_millis(50)).await;
+        {
             let mut records = state.records.lock().await;
             if let Some(item) = records.get_mut(&transfer_id) {
-                if item.status == TransferStatus::Cancelled {
-                    return Ok(());
-                }
-                item.progress_pct = step as f64 * 20.0;
                 item.bytes_total = total;
-                item.bytes_transferred = (total / 5) * step;
-                item.throughput_mbps = 300.0 + step as f64 * 20.0;
-                item.updated_at_unix_ms = now_unix_ms();
             }
-            let _ = append_event(
-                state,
-                TransferEventRecord {
-                    ts_unix_ms: now_unix_ms(),
-                    transfer_id,
-                    kind: "progress".to_string(),
-                    source: None,
-                    destination: None,
-                    priority: None,
-                    status: Some(TransferStatus::Active),
-                    progress_pct: Some(step as f64 * 20.0),
-                    throughput_mbps: Some(300.0 + step as f64 * 20.0),
-                    bytes_transferred: Some((total / 5) * step),
-                    bytes_total: Some(total),
-                    error: None,
-                },
-            )
-            .await;
         }
-        tokio::fs::copy(&src, &dst).await?;
-    } else {
-        // Non-file source placeholder for remote transfers.
-        for step in 1..=5_u64 {
-            tokio::time::sleep(Duration::from_millis(80)).await;
-            let mut records = state.records.lock().await;
-            if let Some(item) = records.get_mut(&transfer_id) {
-                if item.status == TransferStatus::Cancelled {
+        let mut reader = tokio::fs::File::open(&src).await?;
+        let mut writer = tokio::fs::File::create(&dst).await?;
+        let mut buf = vec![0_u8; 1024 * 1024];
+        let start = std::time::Instant::now();
+        let mut copied = 0_u64;
+        loop {
+            {
+                let records = state.records.lock().await;
+                if records
+                    .get(&transfer_id)
+                    .is_some_and(|item| item.status == TransferStatus::Cancelled)
+                {
                     return Ok(());
                 }
-                item.progress_pct = step as f64 * 20.0;
-                item.bytes_transferred = (item.bytes_total / 5) * step;
-                item.throughput_mbps = 400.0 + step as f64 * 15.0;
+            }
+            let n = reader.read(&mut buf).await?;
+            if n == 0 {
+                break;
+            }
+            writer.write_all(&buf[..n]).await?;
+            copied += n as u64;
+            let elapsed = start.elapsed().as_secs_f64().max(1e-6);
+            let mbps = (copied as f64 * 8.0 / 1_000_000.0) / elapsed;
+            let pct = if total > 0 {
+                (copied as f64 / total as f64) * 100.0
+            } else {
+                100.0
+            };
+            let mut records = state.records.lock().await;
+            if let Some(item) = records.get_mut(&transfer_id) {
+                item.progress_pct = pct;
+                item.bytes_total = total;
+                item.bytes_transferred = copied;
+                item.throughput_mbps = mbps;
                 item.updated_at_unix_ms = now_unix_ms();
             }
-            let _ = append_event(
-                state,
-                TransferEventRecord {
-                    ts_unix_ms: now_unix_ms(),
-                    transfer_id,
-                    kind: "progress".to_string(),
-                    source: None,
-                    destination: None,
-                    priority: None,
-                    status: Some(TransferStatus::Active),
-                    progress_pct: Some(step as f64 * 20.0),
-                    throughput_mbps: Some(400.0 + step as f64 * 15.0),
-                    bytes_transferred: None,
-                    bytes_total: None,
-                    error: None,
-                },
-            )
-            .await;
         }
+        writer.flush().await?;
+    } else {
+        anyhow::bail!("unsupported source scheme: {}", rec.source);
     }
 
     let mut records = state.records.lock().await;
@@ -896,12 +974,27 @@ fn parse_sct_endpoint(value: &str) -> Result<ParsedSctEndpoint> {
     Ok(ParsedSctEndpoint { addr, server_name })
 }
 
+fn jail_under_base(base: &str, user_path: &str) -> Result<PathBuf> {
+    let base_path = PathBuf::from(base);
+    std::fs::create_dir_all(&base_path)?;
+    let base_canon = std::fs::canonicalize(&base_path)?;
+    let rel = StdPath::new(user_path);
+    let rel = rel.strip_prefix("/").unwrap_or(rel);
+    if rel
+        .components()
+        .any(|c| matches!(c, Component::ParentDir | Component::Prefix(_)))
+    {
+        anyhow::bail!("destination escapes output_base_dir");
+    }
+    let joined = base_canon.join(rel);
+    if !joined.starts_with(&base_canon) {
+        anyhow::bail!("destination escapes output_base_dir");
+    }
+    Ok(joined)
+}
+
 fn resolve_destination(cfg: &SctConfig, destination: &str, src: &StdPath) -> Result<PathBuf> {
-    let mut dst = if destination.starts_with('/') {
-        PathBuf::from(destination)
-    } else {
-        PathBuf::from(&cfg.server.output_base_dir).join(destination)
-    };
+    let mut dst = jail_under_base(&cfg.server.output_base_dir, destination)?;
     if destination.ends_with('/') || dst.is_dir() {
         let file_name = src
             .file_name()
@@ -911,12 +1004,8 @@ fn resolve_destination(cfg: &SctConfig, destination: &str, src: &StdPath) -> Res
     Ok(dst)
 }
 
-fn resolve_output_dir(cfg: &SctConfig, destination: &str) -> PathBuf {
-    if destination.starts_with('/') {
-        PathBuf::from(destination)
-    } else {
-        PathBuf::from(&cfg.server.output_base_dir).join(destination)
-    }
+fn resolve_output_dir(cfg: &SctConfig, destination: &str) -> Result<PathBuf> {
+    jail_under_base(&cfg.server.output_base_dir, destination)
 }
 
 #[cfg(test)]
@@ -941,6 +1030,7 @@ mod tests {
             cfg,
             state_path: Arc::new(temp.path().join("state.json")),
             events_path: Arc::new(temp.path().join("events.jsonl")),
+            cancels: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -1045,6 +1135,7 @@ mod tests {
             cfg,
             state_path: Arc::new(temp.path().join("state.json")),
             events_path: Arc::new(temp.path().join("events.jsonl")),
+            cancels: Arc::new(Mutex::new(HashMap::new())),
         };
 
         let transfer_id = Uuid::new_v4();
@@ -1132,6 +1223,7 @@ mod tests {
             sequence: Arc::new(Mutex::new(0)),
             state_path: Arc::new(temp.path().join("state.json")),
             events_path: Arc::new(temp.path().join("events.jsonl")),
+            cancels: Arc::new(Mutex::new(HashMap::new())),
         };
         load_records_into_state(&state).await.expect("load");
         let rec = state
@@ -1179,6 +1271,7 @@ mod tests {
             sequence: Arc::new(Mutex::new(0)),
             state_path: Arc::new(temp.path().join("state.json")),
             events_path: Arc::new(temp.path().join("events.jsonl")),
+            cancels: Arc::new(Mutex::new(HashMap::new())),
         };
         load_records_into_state(&state).await.expect("load");
         assert!(state.queue.lock().await.pop().is_none());
@@ -1259,6 +1352,7 @@ mod tests {
             cfg,
             state_path: Arc::new(temp.path().join("state.json")),
             events_path: Arc::new(temp.path().join("events.jsonl")),
+            cancels: Arc::new(Mutex::new(HashMap::new())),
         };
         let transfer_id = Uuid::new_v4();
         state.records.lock().await.insert(
@@ -1282,9 +1376,13 @@ mod tests {
 
         let out_dir = data_dir.join("incoming");
         tokio::fs::create_dir_all(&out_dir).await.expect("mkdir");
-        let hash = blake3::hash("payload.bin".as_bytes());
+        let checksum = blake3::hash(payload);
+        let mut id_hasher = blake3::Hasher::new();
+        id_hasher.update(b"payload.bin");
+        id_hasher.update(&(payload.len() as u64).to_le_bytes());
+        id_hasher.update(checksum.as_bytes());
         let mut transfer = [0_u8; 16];
-        transfer.copy_from_slice(&hash.as_bytes()[..16]);
+        transfer.copy_from_slice(&id_hasher.finalize().as_bytes()[..16]);
         let transfer_hex = transfer
             .iter()
             .map(|b| format!("{b:02x}"))
@@ -1294,6 +1392,8 @@ mod tests {
         let mut part_file = tokio::fs::File::create(&part).await.expect("create part");
         part_file.write_all(&payload[..4]).await.expect("seed");
         part_file.set_len(payload.len() as u64).await.expect("len");
+        part_file.flush().await.expect("flush part");
+        drop(part_file);
         tokio::fs::write(&state_file, r#"{"received_chunks":[0]}"#)
             .await
             .expect("state file");
@@ -1396,6 +1496,7 @@ mod tests {
             sequence: Arc::new(Mutex::new(0)),
             state_path: Arc::new(temp.path().join("state.json")),
             events_path: Arc::new(temp.path().join("events.jsonl")),
+            cancels: Arc::new(Mutex::new(HashMap::new())),
         };
         load_records_into_state(&state).await.expect("load");
         let rec = state

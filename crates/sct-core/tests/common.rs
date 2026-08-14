@@ -1,12 +1,20 @@
 //! Shared helpers for sct-core integration tests (separate test binaries).
 use std::time::Duration;
 
+/// Isolate persisted SPARQ identities from `~/.sct` during tests.
+pub fn isolate_sct_identity() {
+    let dir = std::env::temp_dir().join(format!("sct-test-certs-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    std::env::set_var("SCT_CERT_DIR", dir);
+}
+
 /// Fails fast with a clear message instead of hanging indefinitely (deadlock / port contention).
 pub async fn with_timeout<T>(
     label: &'static str,
     secs: u64,
     fut: impl std::future::Future<Output = T>,
 ) -> T {
+    isolate_sct_identity();
     tokio::time::timeout(Duration::from_secs(secs), fut)
         .await
         .unwrap_or_else(|_| {

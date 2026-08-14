@@ -1,17 +1,19 @@
 use crate::compression::maybe_decompress;
 use crate::protocol::{
-    decode, read_framed, write_framed, ChunkDescriptor, FinalAck, ManifestAck,
-    ReceiverFeedbackFrame, TransferComplete, TransferManifest,
+    check_frame_len, decode, read_framed, write_framed, ChunkDescriptor, FinalAck, ManifestAck,
+    ReceiverFeedbackFrame, TransferComplete, TransferManifest, MAX_CHUNK_DESCRIPTOR_BYTES,
 };
+use crate::sender::hash_file_streaming;
 use crate::transport::SctEndpoint;
 use anyhow::Result;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::fs::{self, OpenOptions};
 use tokio::io::SeekFrom;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+use tokio::task::JoinSet;
 
 pub struct FileReceiver {
     endpoint: SctEndpoint,
@@ -122,18 +124,7 @@ impl FileReceiver {
         let chunk_hashes: Vec<[u8; 32]> = if self.config.resume_partial
             && tokio::fs::try_exists(&temp_path).await.unwrap_or(false)
         {
-            let existing = tokio::fs::read(&temp_path).await.unwrap_or_default();
-            (0..manifest.num_chunks)
-                .map(|i| {
-                    let off = i as usize * manifest.chunk_size as usize;
-                    let end = (off + manifest.chunk_size as usize).min(existing.len());
-                    if end > off {
-                        *blake3::hash(&existing[off..end]).as_bytes()
-                    } else {
-                        [0u8; 32] // Chunk existiert nicht → Null-Hash → kein Match
-                    }
-                })
-                .collect()
+            hash_existing_chunks(&temp_path, &manifest).await
         } else {
             vec![]
         };
@@ -193,8 +184,10 @@ impl FileReceiver {
             .saturating_add(expected_parity_streams)
             .saturating_add(EXTRA_STREAM_HEADROOM);
         let mut accepted_streams = 0usize;
+        let max_parallel = self.config.max_parallel_chunks.max(1);
+        let mut inflight: JoinSet<Result<Vec<u8>>> = JoinSet::new();
         while received_chunks.len() < total_chunks {
-            if accepted_streams >= max_streams {
+            if accepted_streams >= max_streams && inflight.is_empty() {
                 return Err(anyhow::anyhow!(
                     "incomplete transfer: {} of {} chunk indices after {} data streams",
                     received_chunks.len(),
@@ -202,156 +195,65 @@ impl FileReceiver {
                     accepted_streams
                 ));
             }
-            accepted_streams += 1;
-            let mut stream = conn.accept_data_stream().await?;
-            let mut len_buf = [0_u8; 4];
-            stream.read_exact(&mut len_buf).await?;
-            let desc_len = u32::from_be_bytes(len_buf) as usize;
-            let mut desc_buf = vec![0_u8; desc_len];
-            stream.read_exact(&mut desc_buf).await?;
-            let desc: ChunkDescriptor = decode(&desc_buf)?;
-
-            if desc.is_parity {
-                let mut payload = vec![0_u8; desc.compressed_size as usize];
-                stream.read_exact(&mut payload).await?;
-                let Some(ref rs) = fec_rs else {
-                    continue;
-                };
-                if self.config.verify_checksums {
-                    let got = *blake3::hash(&payload).as_bytes();
-                    if got != desc.checksum {
-                        return Err(anyhow::anyhow!(
-                            "parity checksum mismatch fec_group={} parity_index={}",
-                            desc.fec_group,
-                            desc.parity_index
-                        ));
-                    }
+            let wire = tokio::select! {
+                biased;
+                Some(joined) = inflight.join_next(), if !inflight.is_empty() => {
+                    joined??
                 }
-                let g = desc.fec_group;
-                let group = fec_groups
-                    .entry(g)
-                    .or_insert_with(|| vec![None; manifest.data_shards + manifest.parity_shards]);
-                let pi = desc.parity_index.saturating_add(manifest.data_shards);
-                if pi < group.len() {
-                    // RS parity column on the sender is the raw encoded row (`row`), not
-                    // `frame_fec_wire_shard(row)`; data columns use the full framed chunk payload.
-                    group[pi] = Some(payload);
+                d = conn.read_datagram() => {
+                    d?.to_vec()
                 }
-                try_fec_group_recover(
-                    g,
-                    &mut fec_groups,
-                    &manifest,
-                    rs,
-                    &mut out,
-                    &mut received_chunks,
-                    self.config.verify_checksums,
-                )
-                .await?;
-                continue;
-            }
-
-            if received_chunks.contains(&desc.index) {
-                // Already persisted in partial state; still consume payload bytes from stream.
-                let mut discard = vec![0_u8; desc.compressed_size as usize];
-                stream.read_exact(&mut discard).await?;
-                continue;
-            }
-            let mut payload = vec![0_u8; desc.compressed_size as usize];
-            stream.read_exact(&mut payload).await?;
-            if simulate_lost.contains(&desc.index) {
-                continue;
-            }
-            if self.config.verify_checksums {
-                let got = *blake3::hash(&payload).as_bytes();
-                if got != desc.checksum {
-                    return Err(anyhow::anyhow!("chunk checksum mismatch at {}", desc.index));
-                }
-            }
-            let chunk = if desc.was_compressed {
-                maybe_decompress(&payload, &manifest.compression)?
-            } else {
-                payload.clone()
-            };
-            out.seek(SeekFrom::Start(desc.offset)).await?;
-            out.write_all(&chunk).await?;
-            received_chunks.insert(desc.index);
-
-            if let Some(ref rs) = fec_rs {
-                let ds = manifest.data_shards.max(1);
-                let g = desc.fec_group;
-                let base = g.saturating_mul(ds as u64);
-                let slot = desc.index.saturating_sub(base) as usize;
-                if slot < manifest.data_shards {
-                    let mut framed = Vec::with_capacity(4 + desc_buf.len() + payload.len());
-                    framed.extend_from_slice(&len_buf);
-                    framed.extend_from_slice(&desc_buf);
-                    framed.extend_from_slice(&payload);
-                    let group = fec_groups.entry(g).or_insert_with(|| {
-                        vec![None; manifest.data_shards + manifest.parity_shards]
-                    });
-                    if slot < group.len() {
-                        group[slot] = Some(framed);
-                    }
-                    try_fec_group_recover(
-                        g,
-                        &mut fec_groups,
-                        &manifest,
-                        rs,
-                        &mut out,
-                        &mut received_chunks,
-                        self.config.verify_checksums,
-                    )
-                    .await?;
-                }
-            }
-
-            if let Some(ref mut fb_send) = feedback_stream {
-                if !received_chunks.is_empty()
-                    && (received_chunks.len() as u64).is_multiple_of(feedback_every)
+                s = conn.accept_data_stream(),
+                    if inflight.len() < max_parallel && accepted_streams < max_streams =>
                 {
-                    // Berechne fehlende Chunks: expected minus already received.
-                    // Cap auf 64 Einträge, kleinste Indizes zuerst (Sender priorisiert
-                    // frühe Chunks — sie blockieren oft spätere durch sequentiellen Schreibzwang).
-                    let mut missing: Vec<u64> = (0..manifest.num_chunks)
-                        .filter(|i| !received_chunks.contains(i))
-                        .take(64)
-                        .collect();
-                    missing.sort_unstable();
-
-                    let frame = ReceiverFeedbackFrame {
-                        transfer_id: manifest.transfer_id,
-                        decode_delay_ms: if manifest.chunk_size > (1024 * 1024) {
-                            20
-                        } else {
-                            8
-                        },
-                        buffer_occupancy: ((received_chunks.len() as f32)
-                            / (manifest.num_chunks.max(1) as f32))
-                            .clamp(0.0, 1.0),
-                        cpu_load: 0.45,
-                        loss_hint: 0.02,
-                        rtt_ms: 25,
-                        completed_block_id: Some(desc.index / 4),
-                        block_reconstructable: true,
-                        missing_chunk_indices: missing,
-                    };
-                    let _ = write_framed(fb_send, &frame).await;
+                    let mut stream = s?;
+                    accepted_streams += 1;
+                    inflight.spawn(async move {
+                        stream
+                            .read_to_end(32 * 1024 * 1024)
+                            .await
+                            .map_err(|e| anyhow::anyhow!("uni stream read: {e}"))
+                    });
+                    continue;
                 }
-            }
+            };
+            let fec_group = ingest_wire_frame(
+                &wire,
+                &manifest,
+                &mut out,
+                &mut received_chunks,
+                &mut fec_groups,
+                &fec_rs,
+                self.config.verify_checksums,
+                &simulate_lost,
+            )
+            .await?;
+            maybe_write_feedback(
+                &mut feedback_stream,
+                &conn,
+                &manifest,
+                &received_chunks,
+                &fec_groups,
+                accepted_streams,
+                feedback_every,
+                fec_group,
+            )
+            .await;
             if self.config.resume_partial {
-                let state = ResumeState {
-                    received_chunks: received_chunks.iter().copied().collect(),
-                };
-                let raw = serde_json::to_vec(&state)?;
-                fs::write(&state_path, raw).await?;
+                let n = received_chunks.len();
+                if n == total_chunks || n <= 32 || n.is_multiple_of(32) {
+                    let state = ResumeState {
+                        received_chunks: received_chunks.iter().copied().collect(),
+                    };
+                    let raw = serde_json::to_vec(&state)?;
+                    fs::write(&state_path, raw).await?;
+                }
             }
         }
 
         out.flush().await?;
-        out.seek(SeekFrom::Start(0)).await?;
-        let mut full = Vec::with_capacity(manifest.total_size as usize);
-        out.read_to_end(&mut full).await?;
-        let full_hash = *blake3::hash(&full).as_bytes();
+        drop(out);
+        let full_hash = hash_file_streaming(&temp_path).await?;
         let complete: TransferComplete = read_framed(&mut ctrl_recv).await?;
         if complete.transfer_id != manifest.transfer_id {
             write_framed(
@@ -391,6 +293,197 @@ impl FileReceiver {
     }
 }
 
+fn parse_framed_header(wire: &[u8]) -> Result<(ChunkDescriptor, usize, usize)> {
+    if wire.len() < 4 {
+        return Err(anyhow::anyhow!("truncated chunk stream"));
+    }
+    let desc_len_bytes: [u8; 4] = wire[0..4]
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("truncated length prefix"))?;
+    let desc_len = u32::from_be_bytes(desc_len_bytes) as usize;
+    check_frame_len(desc_len, MAX_CHUNK_DESCRIPTOR_BYTES)?;
+    if wire.len() < 4 + desc_len {
+        return Err(anyhow::anyhow!("truncated chunk descriptor"));
+    }
+    let desc: ChunkDescriptor = decode(&wire[4..4 + desc_len])?;
+    Ok((desc, 4, desc_len))
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn ingest_wire_frame(
+    wire: &[u8],
+    manifest: &TransferManifest,
+    out: &mut tokio::fs::File,
+    received_chunks: &mut HashSet<u64>,
+    fec_groups: &mut HashMap<u64, Vec<Option<Vec<u8>>>>,
+    fec_rs: &Option<ReedSolomon>,
+    verify_checksums: bool,
+    simulate_lost: &HashSet<u64>,
+) -> Result<u64> {
+    let (desc, _prefix, _desc_len) = parse_framed_header(wire)?;
+    let max_body = (manifest.chunk_size as usize)
+        .saturating_mul(4)
+        .max(64 * 1024);
+    if desc.compressed_size as usize > max_body {
+        return Err(anyhow::anyhow!(
+            "payload too large at index {} (parity={})",
+            desc.index,
+            desc.is_parity
+        ));
+    }
+    let payload_off = 4 + _desc_len;
+    let payload_end = payload_off + desc.compressed_size as usize;
+    if payload_end > wire.len() {
+        return Err(anyhow::anyhow!("truncated chunk body"));
+    }
+    let payload = &wire[payload_off..payload_end];
+
+    if desc.is_parity {
+        let Some(rs) = fec_rs.as_ref() else {
+            return Ok(desc.fec_group);
+        };
+        if verify_checksums {
+            let got = *blake3::hash(payload).as_bytes();
+            if got != desc.checksum {
+                return Err(anyhow::anyhow!(
+                    "parity checksum mismatch fec_group={} parity_index={}",
+                    desc.fec_group,
+                    desc.parity_index
+                ));
+            }
+        }
+        let g = desc.fec_group;
+        let group = fec_groups
+            .entry(g)
+            .or_insert_with(|| vec![None; manifest.data_shards + manifest.parity_shards]);
+        let pi = desc.parity_index.saturating_add(manifest.data_shards);
+        if pi < group.len() {
+            // RS parity column on the sender is the raw encoded row (`row`), not
+            // `frame_fec_wire_shard(row)`; data columns use the full framed chunk payload.
+            group[pi] = Some(payload.to_vec());
+        }
+        try_fec_group_recover(
+            g,
+            fec_groups,
+            manifest,
+            rs,
+            out,
+            received_chunks,
+            verify_checksums,
+        )
+        .await?;
+        return Ok(g);
+    }
+
+    if simulate_lost.contains(&desc.index) {
+        return Ok(desc.fec_group);
+    }
+    persist_framed_chunk(wire, manifest, out, received_chunks, verify_checksums).await?;
+
+    if let Some(rs) = fec_rs.as_ref() {
+        let ds = manifest.data_shards.max(1);
+        let g = desc.fec_group;
+        let base = g.saturating_mul(ds as u64);
+        let slot = desc.index.saturating_sub(base) as usize;
+        if slot < manifest.data_shards {
+            let group = fec_groups
+                .entry(g)
+                .or_insert_with(|| vec![None; manifest.data_shards + manifest.parity_shards]);
+            if slot < group.len() {
+                group[slot] = Some(wire.to_vec());
+            }
+            try_fec_group_recover(
+                g,
+                fec_groups,
+                manifest,
+                rs,
+                out,
+                received_chunks,
+                verify_checksums,
+            )
+            .await?;
+        }
+    }
+    Ok(desc.fec_group)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn maybe_write_feedback(
+    feedback_stream: &mut Option<quinn::SendStream>,
+    conn: &crate::transport::SctConnection,
+    manifest: &TransferManifest,
+    received_chunks: &HashSet<u64>,
+    fec_groups: &HashMap<u64, Vec<Option<Vec<u8>>>>,
+    accepted_streams: usize,
+    feedback_every: u64,
+    fec_group: u64,
+) {
+    let Some(fb_send) = feedback_stream.as_mut() else {
+        return;
+    };
+    if received_chunks.is_empty() || !(received_chunks.len() as u64).is_multiple_of(feedback_every)
+    {
+        return;
+    }
+    let mut missing: Vec<u64> = (0..manifest.num_chunks)
+        .filter(|i| !received_chunks.contains(i))
+        .take(64)
+        .collect();
+    missing.sort_unstable();
+    let loss_hint = if accepted_streams == 0 {
+        0.0
+    } else {
+        (accepted_streams.saturating_sub(received_chunks.len()) as f32 / accepted_streams as f32)
+            .clamp(0.0, 1.0)
+    };
+    let reconstructable = fec_groups
+        .get(&fec_group)
+        .map(|g| fec_recovery_ready(g, manifest))
+        .unwrap_or(false);
+    let frame = ReceiverFeedbackFrame {
+        transfer_id: manifest.transfer_id,
+        decode_delay_ms: if manifest.chunk_size > (1024 * 1024) {
+            20
+        } else {
+            8
+        },
+        buffer_occupancy: ((received_chunks.len() as f32) / (manifest.num_chunks.max(1) as f32))
+            .clamp(0.0, 1.0),
+        cpu_load: 0.45,
+        loss_hint,
+        rtt_ms: conn.rtt().as_millis().min(u128::from(u32::MAX)) as u32,
+        completed_block_id: Some(fec_group),
+        block_reconstructable: reconstructable,
+        missing_chunk_indices: missing,
+    };
+    let _ = write_framed(fb_send, &frame).await;
+}
+
+async fn hash_existing_chunks(path: &Path, manifest: &TransferManifest) -> Vec<[u8; 32]> {
+    let mut hashes = vec![[0u8; 32]; manifest.num_chunks as usize];
+    let Ok(mut file) = tokio::fs::File::open(path).await else {
+        return hashes;
+    };
+    let file_len = file.metadata().await.map(|m| m.len()).unwrap_or(0);
+    for i in 0..manifest.num_chunks {
+        let off = i * u64::from(manifest.chunk_size);
+        let end = (off + u64::from(manifest.chunk_size))
+            .min(file_len)
+            .min(manifest.total_size);
+        if end <= off {
+            continue;
+        }
+        if file.seek(SeekFrom::Start(off)).await.is_err() {
+            continue;
+        }
+        let mut buf = vec![0u8; (end - off) as usize];
+        if file.read_exact(&mut buf).await.is_ok() {
+            hashes[i as usize] = *blake3::hash(&buf).as_bytes();
+        }
+    }
+    hashes
+}
+
 async fn persist_framed_chunk(
     wire: &[u8],
     manifest: &TransferManifest,
@@ -398,15 +491,11 @@ async fn persist_framed_chunk(
     received_chunks: &mut HashSet<u64>,
     verify_checksums: bool,
 ) -> Result<()> {
-    if wire.len() < 4 {
-        return Err(anyhow::anyhow!("truncated chunk stream"));
+    let (desc, prefix, desc_len) = parse_framed_header(wire)?;
+    if desc.is_parity {
+        return Ok(());
     }
-    let desc_len = u32::from_be_bytes(wire[0..4].try_into().unwrap()) as usize;
-    if wire.len() < 4 + desc_len {
-        return Err(anyhow::anyhow!("truncated chunk descriptor"));
-    }
-    let desc: ChunkDescriptor = decode(&wire[4..4 + desc_len])?;
-    let payload_off = 4 + desc_len;
+    let payload_off = prefix + desc_len;
     let payload_end = payload_off + desc.compressed_size as usize;
     if payload_end > wire.len() {
         return Err(anyhow::anyhow!("truncated chunk body"));
@@ -418,16 +507,17 @@ async fn persist_framed_chunk(
             return Err(anyhow::anyhow!("chunk checksum mismatch at {}", desc.index));
         }
     }
-    let chunk = if desc.was_compressed {
-        maybe_decompress(wire_payload, &manifest.compression)?
-    } else {
-        wire_payload.to_vec()
-    };
-    if !received_chunks.contains(&desc.index) {
-        out.seek(SeekFrom::Start(desc.offset)).await?;
-        out.write_all(&chunk).await?;
-        received_chunks.insert(desc.index);
+    if received_chunks.contains(&desc.index) {
+        return Ok(());
     }
+    out.seek(SeekFrom::Start(desc.offset)).await?;
+    if desc.was_compressed {
+        let chunk = maybe_decompress(wire_payload, &manifest.compression)?;
+        out.write_all(&chunk).await?;
+    } else {
+        out.write_all(wire_payload).await?;
+    }
+    received_chunks.insert(desc.index);
     Ok(())
 }
 
@@ -467,11 +557,7 @@ fn peek_framed_chunk_index(wire: &[u8]) -> Result<u64> {
     if wire.len() < 4 {
         return Err(anyhow::anyhow!("truncated chunk stream"));
     }
-    let desc_len = u32::from_be_bytes(wire[0..4].try_into().unwrap()) as usize;
-    if wire.len() < 4 + desc_len {
-        return Err(anyhow::anyhow!("truncated chunk descriptor"));
-    }
-    let desc: ChunkDescriptor = decode(&wire[4..4 + desc_len])?;
+    let (desc, _, _) = parse_framed_header(wire)?;
     Ok(desc.index)
 }
 
