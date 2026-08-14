@@ -26,7 +26,14 @@ async fn quic_stream_basic_send_subscribe() {
         .await
         .expect("send");
 
-    let event = stream.next().await.expect("item").expect("ok");
+    // SPARQ hardening emits TransportFallback before the mirrored payload when QUIC
+    // connect times out (CI sets SC_QUIC_CONNECT_TIMEOUT_MS=2000).
+    let event = loop {
+        let event = stream.next().await.expect("item").expect("ok");
+        if !matches!(event.event_type, EventType::TransportFallback) {
+            break event;
+        }
+    };
     assert!(matches!(event.event_type, EventType::TaskStarted));
     artifacts::maybe_write_artifact(
         "quic_stream_basic",

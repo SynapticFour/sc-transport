@@ -22,7 +22,13 @@ async fn quic_stream_reconnect_resubscribe_receives_events() {
         )
         .await
         .expect("send first");
-    let _ = first.next().await.expect("first item").expect("ok");
+    let first_event = loop {
+        let event = first.next().await.expect("first item").expect("ok");
+        if !matches!(event.event_type, EventType::TransportFallback) {
+            break event;
+        }
+    };
+    assert!(matches!(first_event.event_type, EventType::RunStarted));
     drop(first);
 
     let mut second = transport.subscribe(run_id).await.expect("second subscribe");
@@ -40,6 +46,11 @@ async fn quic_stream_reconnect_resubscribe_receives_events() {
         .await
         .expect("send second");
 
-    let got = second.next().await.expect("second item").expect("ok");
+    let got = loop {
+        let event = second.next().await.expect("second item").expect("ok");
+        if !matches!(event.event_type, EventType::TransportFallback) {
+            break event;
+        }
+    };
     assert!(matches!(got.event_type, EventType::RunCompleted));
 }
