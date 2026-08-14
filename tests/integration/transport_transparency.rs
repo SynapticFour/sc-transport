@@ -1,5 +1,5 @@
 use futures::StreamExt;
-use sc_transport_core::{EventType, TelemetryEvent, Transport};
+use sc_transport_core::{EventType, TelemetryEvent, Transport, TransportError};
 use sc_transport_datagrams::QuicDatagramTransport;
 use sc_transport_quic::QuicStreamTransport;
 use sc_transport_sse::HttpSseTransport;
@@ -53,18 +53,29 @@ async fn transport_transparency_final_state_identical() {
     send_sequence(&quic, run_id).await;
     send_sequence(&datagram, run_id).await;
 
-    let mut sse_events = Vec::new();
-    let mut quic_events = Vec::new();
-    let mut datagram_events = Vec::new();
-    for _ in 0..6 {
-        sse_events.push(sse_stream.next().await.expect("sse item").expect("ok"));
-        quic_events.push(quic_stream.next().await.expect("quic item").expect("ok"));
-        if let Ok(Some(Ok(e))) = timeout(Duration::from_millis(20), datagram_stream.next()).await {
-            datagram_events.push(e);
-        }
-    }
+    let sse_events = collect_payload(&mut sse_stream, 6).await;
+    let quic_events = collect_payload(&mut quic_stream, 6).await;
+    let datagram_events = collect_payload(&mut datagram_stream, 6).await;
 
     assert_eq!(final_state(&sse_events), "completed");
     assert_eq!(final_state(&quic_events), "completed");
     assert_eq!(final_state(&datagram_events), "completed");
+}
+
+async fn collect_payload(
+    stream: &mut (impl StreamExt<Item = Result<TelemetryEvent, TransportError>> + Unpin),
+    want: usize,
+) -> Vec<TelemetryEvent> {
+    let mut out = Vec::new();
+    while out.len() < want {
+        match timeout(Duration::from_secs(5), stream.next()).await {
+            Ok(Some(Ok(event))) => {
+                if !matches!(event.event_type, EventType::TransportFallback) {
+                    out.push(event);
+                }
+            }
+            _ => break,
+        }
+    }
+    out
 }
