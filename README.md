@@ -1,5 +1,14 @@
 # sc-transport
 
+> **Development paused (2026-09).** This repository is parked.
+>
+> It is **not Ferrum**, not the GA4GH released join, and not a Synaptic Four product SKU.
+>
+> **What this is:** telemetry/transport crates for the parked Synaptic Core stack,
+> plus experimental SPARQ bootstrap work. Not a Ferrum component.
+>
+> Do not treat this tree as a live product or as certification.
+
 Transport layer for [Synaptic Core](https://github.com/SynapticFour/Synaptic-Core).
 Provides implementations of the `Transport` trait for telemetry delivery:
 
