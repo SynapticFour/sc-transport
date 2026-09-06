@@ -1,6 +1,6 @@
 # sc-transport
 
-> **Development paused (2026-09).** This repository is parked.
+> This repository is archived.
 >
 > It is **not Ferrum**, not the GA4GH released join, and not a Synaptic Four product SKU.
 >

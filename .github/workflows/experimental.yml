@@ -2,7 +2,7 @@ name: Sc Transport Experimental Datagrams
 
 # Frugal: not on every main push — weekly schedule + dispatch.
 on:
-  # Paused 2026-09 for development freeze; re-enable after pause; do not bump Ferrum Lab Kit to main.
+  # Weekly schedule off. workflow_dispatch / push / PR still run. Do not bump Lab Kit to Ferrum main.
   # schedule:
   #   - cron: "50 5 * * 1"
   workflow_dispatch:
