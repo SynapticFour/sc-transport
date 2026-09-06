@@ -22,7 +22,7 @@ make destroy # stop; remove volumes
 | sc-transport-quic | QUIC reliable streams | **Optional** | When 0-RTT reconnection or no HoL blocking matters. |
 | sc-transport-datagrams | QUIC unreliable datagrams | **Experimental (0.x)** | Research only. See [LIMITATIONS](docs/LIMITATIONS.md). |
 
-## SPARQ bootstrap (new)
+## SPARQ
 
 This repository now also contains a SPARQ bootstrap workspace for high-throughput
 scientific data transfer foundations:

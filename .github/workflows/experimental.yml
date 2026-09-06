@@ -1,8 +1,8 @@
 name: Sc Transport Experimental Datagrams
 
-# Frugal: not on every main push — weekly schedule + dispatch.
+# Opt-in experimental datagrams (dispatch).
 on:
-  # Weekly schedule off. workflow_dispatch / push / PR still run. Do not bump Lab Kit to Ferrum main.
+  # Weekly schedule off; workflow_dispatch / push / PR still run.
   # schedule:
   #   - cron: "50 5 * * 1"
   workflow_dispatch:
