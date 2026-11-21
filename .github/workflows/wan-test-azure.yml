@@ -1,0 +1,62 @@
+name: WAN Test (Azure)
+
+# Manual only. Frankfurt -> Johannesburg by default; see infra/azure/README.md.
+# Sign-in uses OpenID Connect: no Azure secret and no SSH key are stored in GitHub.
+on:
+  workflow_dispatch:
+    inputs:
+      receiver_location:
+        description: "Receiver region (sender is germanywestcentral)"
+        required: false
+        default: southafricanorth
+        type: choice
+        options: [southafricanorth, eastus, germanywestcentral]
+      campaign:
+        description: "Also run the Linux netem campaign (1-2 h)"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: wan-test-azure
+  cancel-in-progress: false
+
+jobs:
+  wan-test:
+    runs-on: ubuntu-latest
+    environment: azure-wan
+    timeout-minutes: 240
+    env:
+      SCT_REF: ${{ github.sha }}
+      RECEIVER_LOCATION: ${{ inputs.receiver_location }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Start VMs
+        run: bash infra/azure/start_wan_test.sh
+
+      - name: Run test
+        run: bash infra/azure/run_test.sh ${{ inputs.campaign && '--campaign' || '' }}
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wan-results-azure-${{ github.run_id }}
+          path: wan-results/
+          if-no-files-found: warn
+
+      - name: Teardown (always)
+        if: always()
+        run: |
+          if [ -f /tmp/sct-azure-wan.env ]; then bash infra/azure/teardown.sh; fi

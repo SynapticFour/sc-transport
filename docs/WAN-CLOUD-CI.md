@@ -7,6 +7,7 @@ The default CI gate does **not** need AWS, Fly.io, or any cloud account.
 | **CI** (`ci.yml`) | push, PR, or manual *Run workflow* | No |
 | CodeQL, secret scan, quality gate | push / schedule | No |
 | **WAN Test (AWS EC2)** | manual or Monday 04:00 UTC | Yes (AWS) |
+| **WAN Test (Azure)** | manual | Yes (Azure) |
 | **WAN Test (Fly.io)** | local script only | Yes (Fly.io, free tier) |
 
 ## Local WAN-shaped benchmarks (no cloud)
@@ -27,6 +28,16 @@ Cross-region test Frankfurt → Ashburn without AWS credits:
 ```bash
 # See infra/flyio/README.md for one-time setup
 bash scripts/wan_test_flyio.sh
+```
+
+## Azure: Frankfurt → Johannesburg and the netem campaign
+
+Two VMs on a real Europe–Africa path, plus the Linux `tc netem` campaign that closes the open items in [`PRODUCTION-READINESS-CHECKLIST.md`](PRODUCTION-READINESS-CHECKLIST.md) section A. Locally with the Azure CLI, or from GitHub Actions with OpenID Connect (no stored secret). See [`infra/azure/README.md`](../infra/azure/README.md).
+
+```bash
+bash infra/azure/start_wan_test.sh
+bash infra/azure/run_test.sh --campaign
+bash infra/azure/teardown.sh
 ```
 
 ## AWS EC2 in GitHub Actions

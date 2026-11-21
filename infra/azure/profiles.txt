@@ -1,0 +1,7 @@
+# name|one-way delay ms|jitter ms|loss %|rate mbit
+# Loopback netem shapes both directions, so RTT = 2 x delay.
+# These values are ASSUMPTIONS for planning, not measurements. Replace them with
+# RIPE Atlas or partner-site measurements before quoting any result publicly.
+tunis-frankfurt|25|5|0.5|50
+accra-frankfurt|60|15|1.0|30
+johannesburg-frankfurt|85|5|0.2|200
