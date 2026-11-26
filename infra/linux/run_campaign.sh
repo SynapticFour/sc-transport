@@ -1,5 +1,5 @@
 #!/bin/bash
-# Runs ON the sender VM as root. Closes the open Linux items in
+# Runs ON the sender host as root (any provider, see infra/linux/README.md). Closes the open Linux items in
 # docs/PRODUCTION-READINESS-CHECKLIST.md section A: kernel tc netem, loss tests,
 # fallback above 15 % loss, benches with and without netem, three independent runs.
 # Usage: run_campaign.sh <output dir>
@@ -74,6 +74,6 @@ for run in $(seq 1 "$RUNS"); do
     shape delay "${delay}ms" "${jitter}ms" loss "${loss}%" rate "${rate}mbit"
     echo "$name run=$run elapsed_ms=$(transfer "$name" 256)" | tee -a "$OUT/regional.txt"
     shape_off
-  done < /opt/sct/infra/azure/profiles.txt
+  done < /opt/sct/infra/linux/profiles.txt
 done
 echo "Campaign finished: $OUT"

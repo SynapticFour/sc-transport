@@ -1,7 +1,7 @@
 #!/bin/bash
 # Delete the whole resource group. ALWAYS run after a test.
 set -euo pipefail
-STATE="${SCT_AZ_STATE:-/tmp/sct-azure-wan.env}"
+STATE="${SCT_STATE:-${SCT_AZ_STATE:-/tmp/sct-wan.env}}"
 # shellcheck disable=SC1090
 source "$STATE"
 az group delete -n "$RG" --yes --no-wait

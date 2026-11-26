@@ -46,7 +46,7 @@ jobs:
         run: bash infra/azure/start_wan_test.sh
 
       - name: Run test
-        run: bash infra/azure/run_test.sh ${{ inputs.campaign && '--campaign' || '' }}
+        run: bash infra/linux/run_test.sh ${{ inputs.campaign && '--campaign' || '' }}
 
       - name: Upload results
         if: always()
@@ -59,4 +59,4 @@ jobs:
       - name: Teardown (always)
         if: always()
         run: |
-          if [ -f /tmp/sct-azure-wan.env ]; then bash infra/azure/teardown.sh; fi
+          if [ -f /tmp/sct-wan.env ]; then bash infra/azure/teardown.sh; fi
