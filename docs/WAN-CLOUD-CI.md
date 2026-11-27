@@ -7,6 +7,8 @@ The default CI gate does **not** need AWS, Fly.io, or any cloud account.
 | **CI** (`ci.yml`) | push, PR, or manual *Run workflow* | No |
 | CodeQL, secret scan, quality gate | push / schedule | No |
 | **WAN Test (AWS EC2)** | manual or Monday 04:00 UTC | Yes (AWS) |
+| **WAN Test (Azure)** | manual | Yes (Azure) |
+| **WAN / netem on any Linux host** (`infra/linux`, Hetzner or own hosts) | local scripts only | Hetzner token or SSH to your hosts |
 | **WAN Test (Fly.io)** | local script only | Yes (Fly.io, free tier) |
 
 ## Local WAN-shaped benchmarks (no cloud)
@@ -28,6 +30,18 @@ Cross-region test Frankfurt → Ashburn without AWS credits:
 # See infra/flyio/README.md for one-time setup
 bash scripts/wan_test_flyio.sh
 ```
+
+## Any Linux host: the netem campaign and WAN paths
+
+The test and the Linux `tc netem` campaign, which closes the open items in [`PRODUCTION-READINESS-CHECKLIST.md`](PRODUCTION-READINESS-CHECKLIST.md) section A, run on any Ubuntu 24.04 host with root. Hosts come from Hetzner Cloud (billed by the hour), Azure, or hosts you already have. See [`infra/linux/README.md`](../infra/linux/README.md).
+
+```bash
+bash infra/hetzner/start_wan_test.sh            # or infra/azure/start_wan_test.sh, or infra/linux/hosts.sh
+bash infra/linux/run_test.sh --campaign-only    # or --campaign with a receiver
+bash infra/hetzner/teardown.sh
+```
+
+Frankfurt → Johannesburg: Azure ([`infra/azure/README.md`](../infra/azure/README.md), locally or from GitHub Actions with OpenID Connect) or a host in Johannesburg with `infra/linux/hosts.sh`.
 
 ## AWS EC2 in GitHub Actions
 

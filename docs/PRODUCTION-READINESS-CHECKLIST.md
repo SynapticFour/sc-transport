@@ -20,6 +20,8 @@ production use in the Synaptic Core stack.
 
 ### Manual Linux campaign (kernel `tc netem`, root required)
 
+All five open items below run in one go on any Ubuntu host with root, for example one Hetzner Cloud server for an hour: `bash infra/linux/run_test.sh --campaign-only` ([`infra/linux/README.md`](../infra/linux/README.md)). Tick them only after a dated report in `docs/RESULTS/` links the raw output.
+
 - [x] Streaming Matrix I-final auf loopback (simulated, repeats=5, release).
 - [ ] Repeat on dedicated Linux host with tc netem (kernel-level shaping).
 - [ ] Run packet-loss integration tests on a Linux host **with** `tc netem` applied (`scripts/netem_runner.sh`).
